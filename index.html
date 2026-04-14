@@ -630,12 +630,24 @@ function processFile(file) {
     Papa.parse(file, {
       header: true,
       skipEmptyLines: true,
+      worker: true,
       complete: results => {
         try {
           const rows = results.data;
-          if (!rows.length || !rows[0]['Budget Category']) {
-            throw new Error('File does not appear to be a valid SGIP export.');
+          if (!rows.length) {
+            throw new Error('File appears to be empty.');
           }
+          // Check for Budget Category column — handle BOM and encoding variations
+          const firstRowKeys = Object.keys(rows[0]);
+          const hasBudgetCat = firstRowKeys.some(k => k.includes('Budget Category'));
+          if (!hasBudgetCat) {
+            throw new Error('File does not appear to be a valid SGIP export. Expected a "Budget Category" column.');
+          }
+          // Normalize key if BOM-mangled
+          rows.forEach(r => {
+            const mangledKey = firstRowKeys.find(k => k.includes('Budget Category') && k !== 'Budget Category');
+            if (mangledKey) { r['Budget Category'] = r[mangledKey]; }
+          });
           // Extract date from filename or use today
           const dateMatch = file.name.match(/(\d{4}-\d{2}-\d{2})/);
           const fileDate = dateMatch ? dateMatch[1] : new Date().toISOString().split('T')[0];
