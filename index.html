@@ -692,19 +692,81 @@ function processFile(file) {
 // ── MAIN RENDER ──────────────────────────────────────────────────────────────
 let wowChartInstance = null;
 
-function renderDashboard(rows, fileDate, fileName) {
+function buildPayload(rows) {
   const rsse = rows.filter(r => RSSE_CATS.has(r['Budget Category']));
+  const haven = rsse.filter(r => r['Developer Company Name'] === HAVEN_DEVELOPER);
   const approved = rsse.filter(r => APPROVED_STATES.has(r['Fully Qualified State']));
+  const havenApproved = haven.filter(r => APPROVED_STATES.has(r['Fully Qualified State']));
 
-  // Save WoW record
+  function parseDollar(s) { return parseFloat((s||'').replace(/[$,]/g,'')) || 0; }
+
+  // RSSE status counts
+  const rsseStatusCounts = {};
+  rsse.forEach(r => { const s = r['Fully Qualified State']||'Unknown'; rsseStatusCounts[s]=(rsseStatusCounts[s]||0)+1; });
+
+  // Haven status counts
+  const havenStatusCounts = {};
+  haven.forEach(r => { const s = r['Fully Qualified State']||'Unknown'; havenStatusCounts[s]=(havenStatusCounts[s]||0)+1; });
+
+  // Haven cat counts
+  const havenCatCounts = {};
+  haven.forEach(r => { const c = r['Budget Category']||'Unknown'; havenCatCounts[c]=(havenCatCounts[c]||0)+1; });
+
+  // Haven admin counts
+  const havenAdminCounts = {};
+  haven.forEach(r => { const a = r['SGIP Administrator']||'Unknown'; havenAdminCounts[a]=(havenAdminCounts[a]||0)+1; });
+
+  // Haven incentive/kWh
+  let havenTotalInc=0, havenApprovedInc=0, havenTotalKwh=0, havenApprovedKwh=0;
+  haven.forEach(r => {
+    const inc=parseDollar(r['Current Incentive ($)']); const kwh=parseFloat(r['Energy Storage Capacity (kWh)'])||0;
+    havenTotalInc+=inc; havenTotalKwh+=kwh;
+    if(APPROVED_STATES.has(r['Fully Qualified State'])){ havenApprovedInc+=inc; havenApprovedKwh+=kwh; }
+  });
+
+  // RSSE approved incentive/kWh
+  let rsseApprovedInc=0, rsseApprovedKwh=0;
+  approved.forEach(r => {
+    rsseApprovedInc+=parseDollar(r['Current Incentive ($)']);
+    rsseApprovedKwh+=(parseFloat(r['Energy Storage Capacity (kWh)'])||0);
+  });
+
+  // Developer table
+  const devCounts={}, devTotals={}, devIncentive={};
+  rsse.forEach(r => { const d=r['Developer Company Name']||'Unknown'; devTotals[d]=(devTotals[d]||0)+1; });
+  approved.forEach(r => {
+    const d=r['Developer Company Name']||'Unknown';
+    devCounts[d]=(devCounts[d]||0)+1;
+    devIncentive[d]=(devIncentive[d]||0)+parseDollar(r['Current Incentive ($)']);
+  });
+
+  return {
+    totalRows: rows.length,
+    rsseTotal: rsse.length,
+    rsseApproved: approved.length,
+    rsseApprovedInc, rsseApprovedKwh,
+    rsseStatusCounts,
+    havenTotal: haven.length,
+    havenApproved: havenApproved.length,
+    havenTotalInc, havenApprovedInc, havenTotalKwh, havenApprovedKwh,
+    havenStatusCounts, havenCatCounts, havenAdminCounts,
+    devCounts, devTotals, devIncentive,
+  };
+}
+
+function renderDashboard(rows, fileDate, fileName) {
+  const payload = buildPayload(rows);
+
+  // Save WoW record with full payload
   const wowHistory = loadHistory();
   const existingIdx = wowHistory.findIndex(h => h.date === fileDate);
   const record = {
     date: fileDate,
     fileName,
-    totalRsse: rsse.length,
-    approved: approved.length,
-    totalRows: rows.length
+    totalRsse: payload.rsseTotal,
+    approved: payload.rsseApproved,
+    totalRows: payload.totalRows,
+    payload,
   };
   let isNew = false;
   if (existingIdx >= 0) {
@@ -716,18 +778,22 @@ function renderDashboard(rows, fileDate, fileName) {
   wowHistory.sort((a, b) => a.date.localeCompare(b.date));
   saveHistory(wowHistory);
 
-  // Show dashboard
+  renderFromPayload(payload, fileDate, fileName, wowHistory, isNew);
+}
+
+function renderFromPayload(payload, fileDate, fileName, wowHistory, isNew) {
+  // Show dashboard, hide upload zone
   document.getElementById('uploadZone').style.display = 'none';
   document.getElementById('dashboard').style.display = 'block';
   document.getElementById('headerDate').textContent = `Snapshot: ${fileDate}`;
 
-  renderFileMeta(fileDate, fileName, rows.length, rsse.length, isNew);
-  renderRsseCards(rsse, approved, wowHistory);
-  renderStatusTable(rsse);
+  renderFileMeta(fileDate, fileName, payload.totalRows, payload.rsseTotal, isNew);
+  renderRsseCardsFromPayload(payload, wowHistory);
+  renderStatusTableFromPayload(payload.rsseStatusCounts, payload.rsseTotal, 'statusTable');
   renderWowChart(wowHistory);
   renderWowTable(wowHistory, fileDate);
-  renderHavenSection(rows);
-  renderDeveloperTable(rows);
+  renderHavenFromPayload(payload);
+  renderDeveloperFromPayload(payload);
 }
 
 // ── FILE META BAR ─────────────────────────────────────────────────────────────
@@ -759,27 +825,12 @@ function renderFileMeta(fileDate, fileName, totalRows, rsseRows, isNew) {
 }
 
 // ── RSSE CARDS ───────────────────────────────────────────────────────────────
-function renderRsseCards(rsse, approved, wowHistory) {
+function renderRsseCardsFromPayload(payload, wowHistory) {
   const prev = wowHistory.length >= 2 ? wowHistory[wowHistory.length - 2] : null;
-  const approvedCount = approved.length;
-  const approvalRate = rsse.length > 0 ? (approvedCount / rsse.length * 100) : 0;
+  const approvedCount = payload.rsseApproved;
+  const approvalRate = payload.rsseTotal > 0 ? (approvedCount / payload.rsseTotal * 100) : 0;
   const delta = prev ? approvedCount - prev.approved : null;
-  const deltaRsse = prev ? rsse.length - prev.totalRsse : null;
-
-  // Total incentive
-  let totalIncentive = 0;
-  approved.forEach(r => {
-    const raw = r['Current Incentive ($)'] || '';
-    const val = parseFloat(raw.replace(/[$,]/g, ''));
-    if (!isNaN(val)) totalIncentive += val;
-  });
-
-  // Total kWh
-  let totalKwh = 0;
-  approved.forEach(r => {
-    const val = parseFloat(r['Energy Storage Capacity (kWh)']);
-    if (!isNaN(val)) totalKwh += val;
-  });
+  const deltaRsse = prev ? payload.rsseTotal - prev.totalRsse : null;
 
   const el = document.getElementById('rsseCards');
   el.innerHTML = `
@@ -792,11 +843,11 @@ function renderRsseCards(rsse, approved, wowHistory) {
     </div>
     <div class="card">
       <div class="card-label">Total RSSE Applications</div>
-      <div class="card-value">${rsse.length.toLocaleString()}</div>
+      <div class="card-value">${payload.rsseTotal.toLocaleString()}</div>
       <div class="card-sub">
         ${deltaRsse !== null ? `<span class="${deltaRsse >= 0 ? 'delta-up' : 'delta-down'}">${deltaRsse >= 0 ? '+' : ''}${deltaRsse}</span> vs prior snapshot` : 'Across 4 sub-categories'}
       </div>
-      <div class="card-bar"><div class="card-bar-fill" style="width:${Math.min(100, rsse.length / 150)}%"></div></div>
+      <div class="card-bar"><div class="card-bar-fill" style="width:${Math.min(100, payload.rsseTotal / 150)}%"></div></div>
     </div>
     <div class="card">
       <div class="card-label">Approval Rate</div>
@@ -806,25 +857,19 @@ function renderRsseCards(rsse, approved, wowHistory) {
     </div>
     <div class="card">
       <div class="card-label">Approved Incentive Value</div>
-      <div class="card-value">$${(totalIncentive / 1e6).toFixed(1)}M</div>
-      <div class="card-sub">${totalKwh.toLocaleString(undefined, {maximumFractionDigits:0})} kWh deployed</div>
+      <div class="card-value">$${(payload.rsseApprovedInc / 1e6).toFixed(1)}M</div>
+      <div class="card-sub">${payload.rsseApprovedKwh.toLocaleString(undefined, {maximumFractionDigits:0})} kWh deployed</div>
     </div>
   `;
 }
 
 // ── STATUS TABLE ──────────────────────────────────────────────────────────────
-function renderStatusTable(rsse) {
-  const counts = {};
-  rsse.forEach(r => {
-    const s = r['Fully Qualified State'] || 'Unknown';
-    counts[s] = (counts[s] || 0) + 1;
-  });
+function renderStatusTableFromPayload(counts, total, tableId) {
   const STATUS_ORDER = ['Cancelled','RRF Waitlist','RRF Review','RRF Technical Review','RRF Suspended','RRF Submitted','RRF Resubmitted','RRF Equipment Review','RRF Confirmed','ICF Draft','ICF Suspended','ICF Submitted','ICF Resubmitted','ICF Review','ICF Technical Review','ICF Equipment Review','ICF Inspection','ICF Inspection Suspended','Pending Payment','Payment Completed'];
   const sorted = Object.entries(counts).sort((a, b) => {
     const ai = STATUS_ORDER.indexOf(a[0]); const bi = STATUS_ORDER.indexOf(b[0]);
     return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
   });
-  const total = rsse.length;
 
   function pillClass(state) {
     if (APPROVED_STATES.has(state)) return 'pill-green';
@@ -834,8 +879,7 @@ function renderStatusTable(rsse) {
     return 'pill-gray';
   }
 
-  const table = document.getElementById('statusTable');
-  table.innerHTML = `
+  document.getElementById(tableId).innerHTML = `
     <thead><tr>
       <th>Status</th>
       <th>Count</th>
@@ -978,102 +1022,47 @@ function renderWowTable(history, currentDate) {
 // ── HAVEN RSSE SECTION ───────────────────────────────────────────────────────
 const HAVEN_DEVELOPER = 'Haven Energy Services, Inc';
 
-function renderHavenSection(rows) {
-  const rsse = rows.filter(r => RSSE_CATS.has(r['Budget Category']));
-  const haven = rsse.filter(r => r['Developer Company Name'] === HAVEN_DEVELOPER);
-  const approved = haven.filter(r => APPROVED_STATES.has(r['Fully Qualified State']));
+function renderHavenFromPayload(payload) {
+  const marketShare = payload.rsseTotal > 0 ? (payload.havenTotal / payload.rsseTotal * 100) : 0;
+  const approvalRate = payload.havenTotal > 0 ? (payload.havenApproved / payload.havenTotal * 100) : 0;
 
-  // Incentive & kWh
-  let totalIncentive = 0, approvedIncentive = 0, totalKwh = 0, approvedKwh = 0;
-  haven.forEach(r => {
-    const inc = parseFloat((r['Current Incentive ($)'] || '').replace(/[$,]/g, ''));
-    const kwh = parseFloat(r['Energy Storage Capacity (kWh)']);
-    if (!isNaN(inc)) { totalIncentive += inc; }
-    if (!isNaN(kwh)) { totalKwh += kwh; }
-    if (APPROVED_STATES.has(r['Fully Qualified State'])) {
-      if (!isNaN(inc)) approvedIncentive += inc;
-      if (!isNaN(kwh)) approvedKwh += kwh;
-    }
-  });
-
-  // Market share vs all RSSE
-  const marketShare = rsse.length > 0 ? (haven.length / rsse.length * 100) : 0;
-  const approvalRate = haven.length > 0 ? (approved.length / haven.length * 100) : 0;
-
-  // ── CARDS ──
   document.getElementById('havenCards').innerHTML = `
     <div class="card accent-card">
       <div class="card-label">Haven RSSE Projects</div>
-      <div class="card-value">${haven.length.toLocaleString()}</div>
+      <div class="card-value">${payload.havenTotal.toLocaleString()}</div>
       <div class="card-sub">${marketShare.toFixed(1)}% of all RSSE applications</div>
     </div>
     <div class="card">
       <div class="card-label">Payment Completed</div>
-      <div class="card-value">${approved.length.toLocaleString()}</div>
+      <div class="card-value">${payload.havenApproved.toLocaleString()}</div>
       <div class="card-sub">${approvalRate.toFixed(1)}% approval rate</div>
       <div class="card-bar"><div class="card-bar-fill" style="width:${approvalRate}%"></div></div>
     </div>
     <div class="card">
       <div class="card-label">Pipeline Incentive Value</div>
-      <div class="card-value">$${(totalIncentive/1e6).toFixed(1)}M</div>
-      <div class="card-sub">$${(approvedIncentive/1e3).toFixed(0)}K paid out</div>
+      <div class="card-value">$${(payload.havenTotalInc/1e6).toFixed(1)}M</div>
+      <div class="card-sub">$${(payload.havenApprovedInc/1e3).toFixed(0)}K paid out</div>
     </div>
     <div class="card">
       <div class="card-label">Storage Capacity</div>
-      <div class="card-value">${(totalKwh/1e3).toFixed(1)}k<span style="font-size:16px;font-weight:400"> kWh</span></div>
-      <div class="card-sub">${approvedKwh.toLocaleString(undefined,{maximumFractionDigits:0})} kWh paid out</div>
+      <div class="card-value">${(payload.havenTotalKwh/1e3).toFixed(1)}k<span style="font-size:16px;font-weight:400"> kWh</span></div>
+      <div class="card-sub">${payload.havenApprovedKwh.toLocaleString(undefined,{maximumFractionDigits:0})} kWh paid out</div>
     </div>
   `;
 
-  // ── STATUS TABLE ──
-  renderSimpleBreakdown('havenStatusTable', haven, 'Fully Qualified State');
-
-  // ── SUB-CATEGORY TABLE ──
-  renderSimpleBreakdown('havenCatTable', haven, 'Budget Category', cat => cat.replace('Residential Solar and Storage Equity - ', ''));
-
-  // ── ADMIN TABLE ──
-  renderSimpleBreakdown('havenAdminTable', haven, 'SGIP Administrator');
+  renderCountsTable('havenStatusTable', payload.havenStatusCounts, payload.havenTotal, 'status');
+  renderCountsTable('havenCatTable', payload.havenCatCounts, payload.havenTotal, 'category');
+  renderCountsTable('havenAdminTable', payload.havenAdminCounts, payload.havenTotal, 'admin');
 }
 
-function renderSimpleBreakdown(tableId, rows, field, labelFn) {
-  const counts = {};
-  rows.forEach(r => {
-    const val = r[field] || 'Unknown';
-    counts[val] = (counts[val] || 0) + 1;
-  });
-  const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
-  const total = rows.length;
+function renderCountsTable(tableId, counts, total, type) {
+  const STATUS_ORDER = ['Cancelled','RRF Waitlist','RRF Review','RRF Technical Review','RRF Suspended','RRF Submitted','RRF Resubmitted','RRF Equipment Review','RRF Confirmed','ICF Draft','ICF Suspended','ICF Submitted','ICF Resubmitted','ICF Review','ICF Technical Review','ICF Equipment Review','ICF Inspection','ICF Inspection Suspended','Pending Payment','Payment Completed'];
 
-  const STATUS_ORDER = [
-    'Cancelled',
-    'RRF Waitlist',
-    'RRF Review',
-    'RRF Technical Review',
-    'RRF Suspended',
-    'RRF Submitted',
-    'RRF Resubmitted',
-    'RRF Equipment Review',
-    'RRF Confirmed',
-    'ICF Draft',
-    'ICF Suspended',
-    'ICF Submitted',
-    'ICF Resubmitted',
-    'ICF Review',
-    'ICF Technical Review',
-    'ICF Equipment Review',
-    'ICF Inspection',
-    'ICF Inspection Suspended',
-    'Pending Payment',
-    'Payment Completed',
-  ];
-
-  if (field === 'Fully Qualified State') {
+  let sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  if (type === 'status') {
     sorted.sort((a, b) => {
-      const ai = STATUS_ORDER.indexOf(a[0]);
-      const bi = STATUS_ORDER.indexOf(b[0]);
-      const aIdx = ai === -1 ? 999 : ai;
-      const bIdx = bi === -1 ? 999 : bi;
-      return aIdx - bIdx;
+      const ai = STATUS_ORDER.indexOf(a[0]); const bi = STATUS_ORDER.indexOf(b[0]);
+      return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
     });
   }
 
@@ -1085,19 +1074,20 @@ function renderSimpleBreakdown(tableId, rows, field, labelFn) {
     return 'pill-gray';
   }
 
-  const isStateField = field === 'Fully Qualified State';
+  const header = type === 'admin' ? 'Administrator' : type === 'category' ? 'Sub-Category' : 'Status';
+
   document.getElementById(tableId).innerHTML = `
     <thead><tr>
-      <th>${field === 'SGIP Administrator' ? 'Administrator' : field === 'Budget Category' ? 'Sub-Category' : 'Status'}</th>
+      <th>${header}</th>
       <th style="text-align:right">Count</th>
       <th style="text-align:right">%</th>
     </tr></thead>
     <tbody>
       ${sorted.map(([val, count]) => `
         <tr>
-          <td>${isStateField
+          <td>${type === 'status'
             ? `<span class="status-pill ${pillClass(val)}">${val}</span>`
-            : `<span style="font-size:12px">${labelFn ? labelFn(val) : val}</span>`
+            : `<span style="font-size:12px">${type === 'category' ? val.replace('Residential Solar and Storage Equity - ','') : val}</span>`
           }</td>
           <td style="font-family:var(--mono); text-align:right">${count.toLocaleString()}</td>
           <td style="font-family:var(--mono); text-align:right; color:var(--text-tertiary)">${(count/total*100).toFixed(1)}%</td>
@@ -1108,28 +1098,11 @@ function renderSimpleBreakdown(tableId, rows, field, labelFn) {
 }
 
 // ── DEVELOPER LEADERBOARD ────────────────────────────────────────────────────
-function renderDeveloperTable(rows) {
-  const rsse = rows.filter(r => RSSE_CATS.has(r['Budget Category']));
-  const approved = rsse.filter(r => APPROVED_STATES.has(r['Fully Qualified State']));
-
-  // Count approved per developer + incentive totals
-  const devCounts = {};
-  const devTotals = {};
-  const devIncentive = {};
-  rsse.forEach(r => {
-    const dev = r['Developer Company Name'] || 'Unknown';
-    devTotals[dev] = (devTotals[dev] || 0) + 1;
-  });
-  approved.forEach(r => {
-    const dev = r['Developer Company Name'] || 'Unknown';
-    devCounts[dev] = (devCounts[dev] || 0) + 1;
-    const inc = parseFloat((r['Current Incentive ($)'] || '').replace(/[$,]/g, ''));
-    if (!isNaN(inc)) devIncentive[dev] = (devIncentive[dev] || 0) + inc;
-  });
-
+function renderDeveloperFromPayload(payload) {
+  const { devCounts, devTotals, devIncentive } = payload;
   const sorted = Object.entries(devCounts).sort((a, b) => b[1] - a[1]);
   const maxApproved = sorted[0]?.[1] || 1;
-  const totalApproved = approved.length;
+  const totalApproved = payload.rsseApproved;
 
   const isHaven = dev => dev === HAVEN_DEVELOPER;
 
@@ -1209,15 +1182,19 @@ function showToast(msg, isError = false) {
   setTimeout(() => { el.className = 'toast'; }, 4000);
 }
 
-// On load: if there's saved history and dashboard was loaded before, show a hint
+// On load: restore last snapshot from saved payload
 window.addEventListener('DOMContentLoaded', () => {
   const h = loadHistory();
   if (h.length > 0) {
     const latest = h[h.length - 1];
-    document.getElementById('headerDate').textContent = `Last: ${latest.date} (${h.length} snapshots)`;
-    // Show a subtle note in the upload zone
-    const hint = document.querySelector('.upload-zone .hint');
-    if (hint) hint.textContent = `${h.length} snapshot${h.length > 1 ? 's' : ''} saved · Upload to update`;
+    if (latest.payload) {
+      renderFromPayload(latest.payload, latest.date, latest.fileName, h, false);
+    } else {
+      // Old snapshot without payload — show upload zone with hint
+      const hint = document.querySelector('.upload-zone .hint');
+      if (hint) hint.textContent = `${h.length} snapshot${h.length > 1 ? 's' : ''} saved · Re-upload to restore`;
+      document.getElementById('headerDate').textContent = `Last: ${latest.date} · re-upload to view`;
+    }
   }
 });
 </script>
