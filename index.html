@@ -583,12 +583,35 @@
     <div id="wowTableContainer"></div>
   </div>
 
-  <!-- ALL CATEGORIES SECTION -->
-  <div class="section-label">All SGIP Budget Categories</div>
+  <!-- HAVEN RSSE SECTION -->
+  <div class="section-label">Haven Energy &#8212; RSSE Project Snapshot</div>
+
+  <div class="cards-grid" id="havenCards"></div>
+
+  <div class="three-col" style="margin-top:16px;">
+    <div class="panel">
+      <div class="panel-title">Status Breakdown</div>
+      <div class="panel-sub">Haven RSSE &middot; all projects</div>
+      <table class="status-table" id="havenStatusTable"></table>
+    </div>
+    <div class="panel">
+      <div class="panel-title">By Budget Sub-Category</div>
+      <div class="panel-sub">Haven RSSE &middot; project count</div>
+      <table class="status-table" id="havenCatTable"></table>
+    </div>
+    <div class="panel">
+      <div class="panel-title">By SGIP Administrator</div>
+      <div class="panel-sub">Haven RSSE &middot; project count</div>
+      <table class="status-table" id="havenAdminTable"></table>
+    </div>
+  </div>
+
+  <!-- PAYMENT COMPLETE DEVELOPER LEADERBOARD -->
+  <div class="section-label">RSSE Payment Completed — By Developer</div>
   <div class="panel">
-    <div class="panel-title">Program-Wide Summary</div>
-    <div class="panel-sub">Current snapshot · all categories</div>
-    <table class="cat-table" id="catTable"></table>
+    <div class="panel-title">Developer Leaderboard</div>
+    <div class="panel-sub">Only developers with at least one Payment Completed project &middot; sorted most to least</div>
+    <table class="status-table" id="developerTable"></table>
   </div>
 
 </div>
@@ -703,7 +726,8 @@ function renderDashboard(rows, fileDate, fileName) {
   renderStatusTable(rsse);
   renderWowChart(wowHistory);
   renderWowTable(wowHistory, fileDate);
-  renderCatTable(rows);
+  renderHavenSection(rows);
+  renderDeveloperTable(rows);
 }
 
 // ── FILE META BAR ─────────────────────────────────────────────────────────────
@@ -795,7 +819,11 @@ function renderStatusTable(rsse) {
     const s = r['Fully Qualified State'] || 'Unknown';
     counts[s] = (counts[s] || 0) + 1;
   });
-  const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  const STATUS_ORDER = ['Cancelled','RRF Waitlist','RRF Review','RRF Technical Review','RRF Suspended','RRF Submitted','RRF Resubmitted','RRF Equipment Review','RRF Confirmed','ICF Draft','ICF Suspended','ICF Submitted','ICF Resubmitted','ICF Review','ICF Technical Review','ICF Equipment Review','ICF Inspection','ICF Inspection Suspended','Pending Payment','Payment Completed'];
+  const sorted = Object.entries(counts).sort((a, b) => {
+    const ai = STATUS_ORDER.indexOf(a[0]); const bi = STATUS_ORDER.indexOf(b[0]);
+    return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
+  });
   const total = rsse.length;
 
   function pillClass(state) {
@@ -947,65 +975,206 @@ function renderWowTable(history, currentDate) {
   `;
 }
 
-// ── ALL CATEGORIES TABLE ──────────────────────────────────────────────────────
-function renderCatTable(rows) {
-  const cats = {};
-  rows.forEach(r => {
-    const cat = r['Budget Category'] || 'Unknown';
-    if (!cats[cat]) cats[cat] = { total: 0, approved: 0, cancelled: 0, rrfConfirmed: 0, icf: 0, incentive: 0 };
-    cats[cat].total++;
-    const state = r['Fully Qualified State'] || '';
-    if (APPROVED_STATES.has(state)) cats[cat].approved++;
-    if (state === 'Cancelled') cats[cat].cancelled++;
-    if (state === 'RRF Confirmed') cats[cat].rrfConfirmed++;
-    if (state.startsWith('ICF')) cats[cat].icf++;
-    const raw = r['Current Incentive ($)'] || '';
-    const val = parseFloat(raw.replace(/[$,]/g, ''));
-    if (!isNaN(val)) cats[cat].incentive += val;
+// ── HAVEN RSSE SECTION ───────────────────────────────────────────────────────
+const HAVEN_DEVELOPER = 'Haven Energy Services, Inc';
+
+function renderHavenSection(rows) {
+  const rsse = rows.filter(r => RSSE_CATS.has(r['Budget Category']));
+  const haven = rsse.filter(r => r['Developer Company Name'] === HAVEN_DEVELOPER);
+  const approved = haven.filter(r => APPROVED_STATES.has(r['Fully Qualified State']));
+
+  // Incentive & kWh
+  let totalIncentive = 0, approvedIncentive = 0, totalKwh = 0, approvedKwh = 0;
+  haven.forEach(r => {
+    const inc = parseFloat((r['Current Incentive ($)'] || '').replace(/[$,]/g, ''));
+    const kwh = parseFloat(r['Energy Storage Capacity (kWh)']);
+    if (!isNaN(inc)) { totalIncentive += inc; }
+    if (!isNaN(kwh)) { totalKwh += kwh; }
+    if (APPROVED_STATES.has(r['Fully Qualified State'])) {
+      if (!isNaN(inc)) approvedIncentive += inc;
+      if (!isNaN(kwh)) approvedKwh += kwh;
+    }
   });
 
-  const sorted = Object.entries(cats).sort((a, b) => b[1].total - a[1].total);
-  const maxTotal = Math.max(...sorted.map(([,v]) => v.total));
+  // Market share vs all RSSE
+  const marketShare = rsse.length > 0 ? (haven.length / rsse.length * 100) : 0;
+  const approvalRate = haven.length > 0 ? (approved.length / haven.length * 100) : 0;
 
-  const tbody = sorted.map(([cat, v]) => {
-    const isRsse = RSSE_CATS.has(cat);
-    const approvalPct = v.total > 0 ? (v.approved / v.total * 100) : 0;
-    const incentiveStr = v.incentive >= 1e9 ? `$${(v.incentive/1e9).toFixed(2)}B`
-      : v.incentive >= 1e6 ? `$${(v.incentive/1e6).toFixed(1)}M`
-      : `$${(v.incentive/1e3).toFixed(0)}K`;
-    const barPct = v.total / maxTotal * 100;
+  // ── CARDS ──
+  document.getElementById('havenCards').innerHTML = `
+    <div class="card accent-card">
+      <div class="card-label">Haven RSSE Projects</div>
+      <div class="card-value">${haven.length.toLocaleString()}</div>
+      <div class="card-sub">${marketShare.toFixed(1)}% of all RSSE applications</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Payment Completed</div>
+      <div class="card-value">${approved.length.toLocaleString()}</div>
+      <div class="card-sub">${approvalRate.toFixed(1)}% approval rate</div>
+      <div class="card-bar"><div class="card-bar-fill" style="width:${approvalRate}%"></div></div>
+    </div>
+    <div class="card">
+      <div class="card-label">Pipeline Incentive Value</div>
+      <div class="card-value">$${(totalIncentive/1e6).toFixed(1)}M</div>
+      <div class="card-sub">$${(approvedIncentive/1e3).toFixed(0)}K paid out</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Storage Capacity</div>
+      <div class="card-value">${(totalKwh/1e3).toFixed(1)}k<span style="font-size:16px;font-weight:400"> kWh</span></div>
+      <div class="card-sub">${approvedKwh.toLocaleString(undefined,{maximumFractionDigits:0})} kWh paid out</div>
+    </div>
+  `;
+
+  // ── STATUS TABLE ──
+  renderSimpleBreakdown('havenStatusTable', haven, 'Fully Qualified State');
+
+  // ── SUB-CATEGORY TABLE ──
+  renderSimpleBreakdown('havenCatTable', haven, 'Budget Category', cat => cat.replace('Residential Solar and Storage Equity - ', ''));
+
+  // ── ADMIN TABLE ──
+  renderSimpleBreakdown('havenAdminTable', haven, 'SGIP Administrator');
+}
+
+function renderSimpleBreakdown(tableId, rows, field, labelFn) {
+  const counts = {};
+  rows.forEach(r => {
+    const val = r[field] || 'Unknown';
+    counts[val] = (counts[val] || 0) + 1;
+  });
+  const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  const total = rows.length;
+
+  const STATUS_ORDER = [
+    'Cancelled',
+    'RRF Waitlist',
+    'RRF Review',
+    'RRF Technical Review',
+    'RRF Suspended',
+    'RRF Submitted',
+    'RRF Resubmitted',
+    'RRF Equipment Review',
+    'RRF Confirmed',
+    'ICF Draft',
+    'ICF Suspended',
+    'ICF Submitted',
+    'ICF Resubmitted',
+    'ICF Review',
+    'ICF Technical Review',
+    'ICF Equipment Review',
+    'ICF Inspection',
+    'ICF Inspection Suspended',
+    'Pending Payment',
+    'Payment Completed',
+  ];
+
+  if (field === 'Fully Qualified State') {
+    sorted.sort((a, b) => {
+      const ai = STATUS_ORDER.indexOf(a[0]);
+      const bi = STATUS_ORDER.indexOf(b[0]);
+      const aIdx = ai === -1 ? 999 : ai;
+      const bIdx = bi === -1 ? 999 : bi;
+      return aIdx - bIdx;
+    });
+  }
+
+  function pillClass(state) {
+    if (APPROVED_STATES.has(state)) return 'pill-green';
+    if (state.startsWith('RRF Confirmed') || state.startsWith('ICF')) return 'pill-blue';
+    if (state === 'Cancelled') return 'pill-red';
+    if (state.includes('Waitlist') || state.includes('Suspended')) return 'pill-amber';
+    return 'pill-gray';
+  }
+
+  const isStateField = field === 'Fully Qualified State';
+  document.getElementById(tableId).innerHTML = `
+    <thead><tr>
+      <th>${field === 'SGIP Administrator' ? 'Administrator' : field === 'Budget Category' ? 'Sub-Category' : 'Status'}</th>
+      <th style="text-align:right">Count</th>
+      <th style="text-align:right">%</th>
+    </tr></thead>
+    <tbody>
+      ${sorted.map(([val, count]) => `
+        <tr>
+          <td>${isStateField
+            ? `<span class="status-pill ${pillClass(val)}">${val}</span>`
+            : `<span style="font-size:12px">${labelFn ? labelFn(val) : val}</span>`
+          }</td>
+          <td style="font-family:var(--mono); text-align:right">${count.toLocaleString()}</td>
+          <td style="font-family:var(--mono); text-align:right; color:var(--text-tertiary)">${(count/total*100).toFixed(1)}%</td>
+        </tr>
+      `).join('')}
+    </tbody>
+  `;
+}
+
+// ── DEVELOPER LEADERBOARD ────────────────────────────────────────────────────
+function renderDeveloperTable(rows) {
+  const rsse = rows.filter(r => RSSE_CATS.has(r['Budget Category']));
+  const approved = rsse.filter(r => APPROVED_STATES.has(r['Fully Qualified State']));
+
+  // Count approved per developer + incentive totals
+  const devCounts = {};
+  const devTotals = {};
+  const devIncentive = {};
+  rsse.forEach(r => {
+    const dev = r['Developer Company Name'] || 'Unknown';
+    devTotals[dev] = (devTotals[dev] || 0) + 1;
+  });
+  approved.forEach(r => {
+    const dev = r['Developer Company Name'] || 'Unknown';
+    devCounts[dev] = (devCounts[dev] || 0) + 1;
+    const inc = parseFloat((r['Current Incentive ($)'] || '').replace(/[$,]/g, ''));
+    if (!isNaN(inc)) devIncentive[dev] = (devIncentive[dev] || 0) + inc;
+  });
+
+  const sorted = Object.entries(devCounts).sort((a, b) => b[1] - a[1]);
+  const maxApproved = sorted[0]?.[1] || 1;
+  const totalApproved = approved.length;
+
+  const isHaven = dev => dev === HAVEN_DEVELOPER;
+
+  const tbody = sorted.map(([dev, count], i) => {
+    const total = devTotals[dev] || 0;
+    const pct = total > 0 ? (count / total * 100) : 0;
+    const sharePct = totalApproved > 0 ? (count / totalApproved * 100) : 0;
+    const barPct = (count / maxApproved * 100);
+    const haven = isHaven(dev);
+    const inc = devIncentive[dev] || 0;
+    const incStr = inc >= 1e6 ? `$${(inc/1e6).toFixed(2)}M` : `$${(inc/1e3).toFixed(1)}K`;
     return `
-      <tr class="${isRsse ? 'cat-row-rsse' : ''}">
+      <tr style="${haven ? 'background:rgba(1,51,0,0.04)' : ''}">
+        <td style="font-family:var(--mono); color:var(--text-tertiary); width:28px; font-size:11px">${i+1}</td>
         <td>
-          <div class="cat-name">${cat}${isRsse ? '<span class="rsse-badge">RSSE</span>' : ''}</div>
+          <span style="font-size:13px; font-weight:${haven ? '600' : '400'}; color:${haven ? 'var(--haven-green)' : 'var(--text-primary)'}">
+            ${dev}
+          </span>
+          ${haven ? '<span class="rsse-badge" style="margin-left:8px">Haven</span>' : ''}
         </td>
-        <td>${v.total.toLocaleString()}</td>
+        <td style="font-family:var(--mono); text-align:right">${total.toLocaleString()}</td>
         <td>
-          <div class="progress-mini">
-            <span>${v.approved.toLocaleString()}</span>
-            <div class="progress-track">
-              <div class="progress-fill ${isRsse ? 'rsse' : ''}" style="width:${approvalPct}%"></div>
+          <div class="progress-mini" style="justify-content:flex-end">
+            <span style="font-family:var(--mono)">${count.toLocaleString()}</span>
+            <div class="progress-track" style="width:80px">
+              <div class="progress-fill ${haven ? 'rsse' : ''}" style="width:${barPct}%"></div>
             </div>
-            <span style="color:var(--text-tertiary); min-width:36px">${approvalPct.toFixed(1)}%</span>
           </div>
         </td>
-        <td>${v.cancelled.toLocaleString()}</td>
-        <td>${v.rrfConfirmed.toLocaleString()}</td>
-        <td>${v.icf.toLocaleString()}</td>
-        <td>${incentiveStr}</td>
+        <td style="font-family:var(--mono); text-align:right">${incStr}</td>
+        <td style="font-family:var(--mono); text-align:right; color:var(--text-tertiary)">${pct.toFixed(1)}%</td>
+        <td style="font-family:var(--mono); text-align:right; color:var(--text-tertiary)">${sharePct.toFixed(1)}%</td>
       </tr>
     `;
   }).join('');
 
-  document.getElementById('catTable').innerHTML = `
+  document.getElementById('developerTable').innerHTML = `
     <thead><tr>
-      <th>Budget Category</th>
-      <th>Total</th>
-      <th>Approved</th>
-      <th>Cancelled</th>
-      <th>RRF Confirmed</th>
-      <th>ICF Stage</th>
-      <th>Total Incentive</th>
+      <th style="width:28px">#</th>
+      <th>Developer</th>
+      <th style="text-align:right">Total RSSE</th>
+      <th style="text-align:right">Payment Completed</th>
+      <th style="text-align:right">Total Paid</th>
+      <th style="text-align:right">Approval Rate</th>
+      <th style="text-align:right">% of All Approved</th>
     </tr></thead>
     <tbody>${tbody}</tbody>
   `;
