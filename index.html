@@ -1,0 +1,1044 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SGIP Dashboard — Haven Energy</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap');
+
+  :root {
+    --haven-green: #013300;
+    --haven-green-mid: #024a00;
+    --haven-green-light: #035c00;
+    --accent: #4ade80;
+    --accent-dim: rgba(74, 222, 128, 0.15);
+    --accent-border: rgba(74, 222, 128, 0.3);
+    --bg: #f8f7f4;
+    --surface: #ffffff;
+    --surface-2: #f2f1ee;
+    --border: #e4e2dd;
+    --text-primary: #1a1a1a;
+    --text-secondary: #6b6860;
+    --text-tertiary: #9c9a96;
+    --red: #ef4444;
+    --amber: #f59e0b;
+    --blue: #3b82f6;
+    --mono: 'DM Mono', monospace;
+    --sans: 'DM Sans', sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: var(--sans);
+    background: var(--bg);
+    color: var(--text-primary);
+    min-height: 100vh;
+  }
+
+  /* HEADER */
+  .header {
+    background: var(--haven-green);
+    padding: 0 32px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 56px;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+  }
+  .header-left {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  .logo-mark {
+    width: 28px; height: 28px;
+    background: var(--accent);
+    border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .logo-mark svg { width: 16px; height: 16px; }
+  .header-title {
+    font-size: 13px;
+    font-weight: 500;
+    color: rgba(255,255,255,0.9);
+    letter-spacing: 0.02em;
+  }
+  .header-sub {
+    font-size: 11px;
+    color: rgba(255,255,255,0.4);
+    font-family: var(--mono);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+  .header-divider {
+    width: 1px; height: 24px;
+    background: rgba(255,255,255,0.12);
+  }
+  .upload-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--accent);
+    color: var(--haven-green);
+    border: none;
+    border-radius: 6px;
+    padding: 7px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    font-family: var(--sans);
+    cursor: pointer;
+    transition: opacity 0.15s;
+    white-space: nowrap;
+  }
+  .upload-btn:hover { opacity: 0.88; }
+  #fileInput { display: none; }
+
+  /* UPLOAD ZONE */
+  .upload-zone {
+    margin: 48px auto;
+    max-width: 520px;
+    border: 2px dashed var(--border);
+    border-radius: 12px;
+    padding: 56px 32px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+  }
+  .upload-zone:hover, .upload-zone.drag-over {
+    border-color: var(--accent);
+    background: var(--accent-dim);
+  }
+  .upload-zone-icon {
+    width: 48px; height: 48px;
+    background: var(--haven-green);
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    margin: 0 auto 16px;
+  }
+  .upload-zone h2 {
+    font-size: 18px;
+    font-weight: 500;
+    margin-bottom: 8px;
+    color: var(--text-primary);
+  }
+  .upload-zone p {
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.6;
+  }
+  .upload-zone .hint {
+    margin-top: 20px;
+    font-size: 11px;
+    font-family: var(--mono);
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  /* MAIN LAYOUT */
+  .main { padding: 28px 32px 48px; max-width: 1400px; margin: 0 auto; }
+
+  /* SECTION HEADERS */
+  .section-label {
+    font-size: 10px;
+    font-family: var(--mono);
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--text-tertiary);
+    margin-bottom: 14px;
+    margin-top: 32px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .section-label::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  /* FILE META BAR */
+  .file-meta {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    background: var(--haven-green);
+    border-radius: 8px;
+    padding: 12px 20px;
+    margin-bottom: 24px;
+  }
+  .file-meta-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .file-meta-item .label {
+    font-size: 10px;
+    font-family: var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: rgba(255,255,255,0.4);
+  }
+  .file-meta-item .value {
+    font-size: 13px;
+    font-weight: 500;
+    color: rgba(255,255,255,0.9);
+  }
+  .file-meta-divider { width: 1px; height: 32px; background: rgba(255,255,255,0.1); }
+  .file-meta .spacer { flex: 1; }
+  .new-record-badge {
+    background: var(--accent);
+    color: var(--haven-green);
+    font-size: 10px;
+    font-weight: 700;
+    font-family: var(--mono);
+    padding: 3px 8px;
+    border-radius: 4px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  /* STAT CARDS */
+  .cards-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-bottom: 4px;
+  }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px 20px;
+    position: relative;
+    overflow: hidden;
+  }
+  .card.accent-card {
+    background: var(--haven-green);
+    border-color: transparent;
+  }
+  .card-label {
+    font-size: 11px;
+    font-family: var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-tertiary);
+    margin-bottom: 10px;
+  }
+  .accent-card .card-label { color: rgba(255,255,255,0.45); }
+  .card-value {
+    font-size: 28px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    line-height: 1;
+    margin-bottom: 6px;
+  }
+  .accent-card .card-value { color: var(--accent); }
+  .card-sub {
+    font-size: 12px;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .accent-card .card-sub { color: rgba(255,255,255,0.5); }
+  .delta-up { color: #22c55e; font-weight: 600; }
+  .delta-down { color: var(--red); font-weight: 600; }
+  .delta-neutral { color: var(--text-tertiary); }
+  .card-bar {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: 3px;
+    background: var(--border);
+  }
+  .card-bar-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 0 2px 2px 0;
+    transition: width 0.6s ease;
+  }
+
+  /* TWO COLUMN LAYOUT */
+  .two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-top: 4px;
+  }
+  .three-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 16px;
+    margin-top: 4px;
+  }
+
+  /* PANEL */
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px 22px;
+  }
+  .panel-title {
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  .panel-sub {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    font-family: var(--mono);
+    margin-bottom: 18px;
+  }
+
+  /* WoW CHART */
+  .chart-container {
+    position: relative;
+    height: 240px;
+  }
+
+  /* STATUS TABLE */
+  .status-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  .status-table th {
+    font-size: 10px;
+    font-family: var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-tertiary);
+    padding: 0 0 10px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+    font-weight: 500;
+  }
+  .status-table th:last-child { text-align: right; }
+  .status-table td {
+    padding: 9px 0;
+    font-size: 13px;
+    border-bottom: 1px solid var(--surface-2);
+  }
+  .status-table td:last-child { text-align: right; }
+  .status-table tr:last-child td { border-bottom: none; }
+  .status-pill {
+    display: inline-block;
+    font-size: 10px;
+    font-family: var(--mono);
+    padding: 2px 8px;
+    border-radius: 99px;
+    font-weight: 500;
+  }
+  .pill-green { background: rgba(34,197,94,0.12); color: #16a34a; }
+  .pill-amber { background: rgba(245,158,11,0.12); color: #d97706; }
+  .pill-red { background: rgba(239,68,68,0.12); color: #dc2626; }
+  .pill-blue { background: rgba(59,130,246,0.12); color: #2563eb; }
+  .pill-gray { background: var(--surface-2); color: var(--text-secondary); }
+
+  /* ALL CATEGORIES TABLE */
+  .cat-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  .cat-table th {
+    font-size: 10px;
+    font-family: var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-tertiary);
+    padding: 0 8px 10px 0;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+    font-weight: 500;
+  }
+  .cat-table th:not(:first-child) { text-align: right; }
+  .cat-table td {
+    padding: 10px 8px 10px 0;
+    font-size: 12px;
+    border-bottom: 1px solid var(--surface-2);
+    vertical-align: middle;
+  }
+  .cat-table td:not(:first-child) { text-align: right; font-family: var(--mono); font-size: 12px; }
+  .cat-table tr:last-child td { border-bottom: none; }
+  .cat-row-rsse { background: rgba(1,51,0,0.03); }
+  .cat-name { font-weight: 500; font-size: 12px; }
+  .cat-sub { font-size: 11px; color: var(--text-tertiary); margin-top: 2px; }
+  .rsse-badge {
+    display: inline-block;
+    font-size: 9px;
+    font-family: var(--mono);
+    background: var(--haven-green);
+    color: var(--accent);
+    padding: 1px 6px;
+    border-radius: 3px;
+    margin-left: 8px;
+    vertical-align: middle;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+  .progress-mini {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    justify-content: flex-end;
+  }
+  .progress-track {
+    width: 60px;
+    height: 4px;
+    background: var(--surface-2);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%;
+    background: var(--haven-green);
+    border-radius: 2px;
+  }
+  .progress-fill.rsse { background: var(--accent); }
+
+  /* WoW HISTORY TABLE */
+  .wow-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  .wow-table th {
+    font-size: 10px;
+    font-family: var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-tertiary);
+    padding: 0 0 10px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+    font-weight: 500;
+  }
+  .wow-table th:not(:first-child):not(:nth-child(2)) { text-align: right; }
+  .wow-table td {
+    padding: 9px 0;
+    font-size: 12px;
+    font-family: var(--mono);
+    border-bottom: 1px solid var(--surface-2);
+  }
+  .wow-table td:not(:first-child):not(:nth-child(2)) { text-align: right; }
+  .wow-table tr:last-child td { border-bottom: none; }
+  .wow-table .current-row td { font-weight: 600; }
+  .wow-table .current-row td:first-child { color: var(--haven-green); }
+
+  /* EMPTY STATE */
+  .empty-wow {
+    text-align: center;
+    padding: 32px 0;
+    color: var(--text-tertiary);
+    font-size: 12px;
+    font-family: var(--mono);
+  }
+
+  /* LOADING */
+  .loading-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(248,247,244,0.85);
+    z-index: 200;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .loading-overlay.active { display: flex; }
+  .spinner {
+    width: 36px; height: 36px;
+    border: 3px solid var(--border);
+    border-top-color: var(--haven-green);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading-text {
+    font-size: 13px;
+    color: var(--text-secondary);
+    font-family: var(--mono);
+  }
+
+  /* TOAST */
+  .toast {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    background: var(--haven-green);
+    color: rgba(255,255,255,0.9);
+    font-size: 13px;
+    font-family: var(--mono);
+    padding: 12px 18px;
+    border-radius: 8px;
+    z-index: 300;
+    transform: translateY(80px);
+    opacity: 0;
+    transition: all 0.3s ease;
+    max-width: 340px;
+    line-height: 1.5;
+  }
+  .toast.show { transform: translateY(0); opacity: 1; }
+  .toast.error { background: var(--red); }
+
+  /* RESPONSIVE */
+  @media (max-width: 900px) {
+    .cards-grid { grid-template-columns: repeat(2, 1fr); }
+    .two-col, .three-col { grid-template-columns: 1fr; }
+    .main { padding: 20px 16px 48px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<header class="header">
+  <div class="header-left">
+    <div class="logo-mark">
+      <svg viewBox="0 0 16 16" fill="none">
+        <path d="M8 2L13 13H3L8 2Z" fill="#013300"/>
+      </svg>
+    </div>
+    <div>
+      <div class="header-title">Haven Energy</div>
+      <div class="header-sub">SGIP Dashboard</div>
+    </div>
+    <div class="header-divider"></div>
+    <div style="font-size:12px; color:rgba(255,255,255,0.5); font-family:var(--mono);" id="headerDate">No data loaded</div>
+  </div>
+  <button class="upload-btn" onclick="document.getElementById('fileInput').click()">
+    <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+      <path d="M8 1v10M4 5l4-4 4 4M2 13h12" stroke="#013300" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    Upload New Export
+  </button>
+  <input type="file" id="fileInput" accept=".csv" onchange="handleFileUpload(event)">
+</header>
+
+<!-- LOADING -->
+<div class="loading-overlay" id="loadingOverlay">
+  <div class="spinner"></div>
+  <div class="loading-text">Parsing SGIP export...</div>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<!-- UPLOAD ZONE (shown when no data) -->
+<div id="uploadZone" style="padding: 0 32px;">
+  <div class="upload-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
+    <div class="upload-zone-icon">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+        <path d="M12 3v12M7 8l5-5 5 5M3 19h18" stroke="#4ade80" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </div>
+    <h2>Drop SGIP export here</h2>
+    <p>Upload the <code>sgip_public_export_[date].csv</code> file.<br>Each upload is saved as a weekly snapshot for trend tracking.</p>
+    <div class="hint">CSV · up to 50 MB · SGIP public export format</div>
+  </div>
+</div>
+
+<!-- MAIN DASHBOARD (hidden until data loaded) -->
+<div class="main" id="dashboard" style="display:none;">
+
+  <!-- FILE META -->
+  <div class="file-meta" id="fileMeta"></div>
+
+  <!-- RSSE SECTION -->
+  <div class="section-label">RSSE — Residential Solar &amp; Storage Equity</div>
+
+  <div class="cards-grid" id="rsseCards"></div>
+
+  <div class="two-col" style="margin-top:16px;">
+    <!-- WoW Chart -->
+    <div class="panel">
+      <div class="panel-title">Approved Applications — Week over Week</div>
+      <div class="panel-sub">Payment Completed · snapshot per upload</div>
+      <div class="chart-container">
+        <canvas id="wowChart"></canvas>
+      </div>
+    </div>
+    <!-- RSSE Status Breakdown -->
+    <div class="panel">
+      <div class="panel-title">RSSE Status Breakdown</div>
+      <div class="panel-sub">All 11,000 applications · current snapshot</div>
+      <table class="status-table" id="statusTable"></table>
+    </div>
+  </div>
+
+  <!-- WoW HISTORY TABLE -->
+  <div class="section-label">Snapshot History</div>
+  <div class="panel">
+    <div class="panel-title">Weekly Upload Log</div>
+    <div class="panel-sub">Each file upload is recorded as a data point</div>
+    <div id="wowTableContainer"></div>
+  </div>
+
+  <!-- ALL CATEGORIES SECTION -->
+  <div class="section-label">All SGIP Budget Categories</div>
+  <div class="panel">
+    <div class="panel-title">Program-Wide Summary</div>
+    <div class="panel-sub">Current snapshot · all categories</div>
+    <table class="cat-table" id="catTable"></table>
+  </div>
+
+</div>
+
+<script>
+// ── STORAGE KEY ──────────────────────────────────────────────────────────────
+const STORAGE_KEY = 'haven_sgip_wow_history';
+
+// ── RSSE CATEGORY DEFINITIONS ────────────────────────────────────────────────
+const RSSE_CATS = new Set([
+  'Residential Solar and Storage Equity - AB 209',
+  'Residential Solar and Storage Equity - Ratepayer',
+  'Residential Solar and Storage Equity - AB 209 Non-POU',
+  'Residential Solar and Storage Equity - AB 209 POU'
+]);
+const APPROVED_STATES = new Set(['Payment Completed', 'Pending Payment']);
+
+// ── DRAG & DROP ──────────────────────────────────────────────────────────────
+const dropZone = document.getElementById('dropZone');
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (file) processFile(file);
+});
+
+// ── FILE UPLOAD ──────────────────────────────────────────────────────────────
+function handleFileUpload(event) {
+  const file = event.target.files[0];
+  if (file) processFile(file);
+  event.target.value = '';
+}
+
+function processFile(file) {
+  showLoading(true);
+  setTimeout(() => {
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: results => {
+        try {
+          const rows = results.data;
+          if (!rows.length || !rows[0]['Budget Category']) {
+            throw new Error('File does not appear to be a valid SGIP export.');
+          }
+          // Extract date from filename or use today
+          const dateMatch = file.name.match(/(\d{4}-\d{2}-\d{2})/);
+          const fileDate = dateMatch ? dateMatch[1] : new Date().toISOString().split('T')[0];
+          renderDashboard(rows, fileDate, file.name);
+          showToast(`Loaded ${rows.length.toLocaleString()} records from ${file.name}`);
+        } catch(e) {
+          showToast(e.message, true);
+        }
+        showLoading(false);
+      },
+      error: err => {
+        showLoading(false);
+        showToast('Failed to parse CSV: ' + err.message, true);
+      }
+    });
+  }, 50);
+}
+
+// ── MAIN RENDER ──────────────────────────────────────────────────────────────
+let wowChartInstance = null;
+
+function renderDashboard(rows, fileDate, fileName) {
+  const rsse = rows.filter(r => RSSE_CATS.has(r['Budget Category']));
+  const approved = rsse.filter(r => APPROVED_STATES.has(r['Fully Qualified State']));
+
+  // Save WoW record
+  const wowHistory = loadHistory();
+  const existingIdx = wowHistory.findIndex(h => h.date === fileDate);
+  const record = {
+    date: fileDate,
+    fileName,
+    totalRsse: rsse.length,
+    approved: approved.length,
+    totalRows: rows.length
+  };
+  let isNew = false;
+  if (existingIdx >= 0) {
+    wowHistory[existingIdx] = record;
+  } else {
+    wowHistory.push(record);
+    isNew = true;
+  }
+  wowHistory.sort((a, b) => a.date.localeCompare(b.date));
+  saveHistory(wowHistory);
+
+  // Show dashboard
+  document.getElementById('uploadZone').style.display = 'none';
+  document.getElementById('dashboard').style.display = 'block';
+  document.getElementById('headerDate').textContent = `Snapshot: ${fileDate}`;
+
+  renderFileMeta(fileDate, fileName, rows.length, rsse.length, isNew);
+  renderRsseCards(rsse, approved, wowHistory);
+  renderStatusTable(rsse);
+  renderWowChart(wowHistory);
+  renderWowTable(wowHistory, fileDate);
+  renderCatTable(rows);
+}
+
+// ── FILE META BAR ─────────────────────────────────────────────────────────────
+function renderFileMeta(fileDate, fileName, totalRows, rsseRows, isNew) {
+  const el = document.getElementById('fileMeta');
+  el.innerHTML = `
+    <div class="file-meta-item">
+      <span class="label">File</span>
+      <span class="value" style="font-family:var(--mono); font-size:12px;">${fileName}</span>
+    </div>
+    <div class="file-meta-divider"></div>
+    <div class="file-meta-item">
+      <span class="label">Snapshot Date</span>
+      <span class="value">${fileDate}</span>
+    </div>
+    <div class="file-meta-divider"></div>
+    <div class="file-meta-item">
+      <span class="label">Total Records</span>
+      <span class="value">${totalRows.toLocaleString()}</span>
+    </div>
+    <div class="file-meta-divider"></div>
+    <div class="file-meta-item">
+      <span class="label">RSSE Records</span>
+      <span class="value">${rsseRows.toLocaleString()}</span>
+    </div>
+    <div class="spacer"></div>
+    ${isNew ? '<span class="new-record-badge">New Snapshot Saved</span>' : '<span style="font-size:11px; color:rgba(255,255,255,0.4); font-family:var(--mono);">Snapshot Updated</span>'}
+  `;
+}
+
+// ── RSSE CARDS ───────────────────────────────────────────────────────────────
+function renderRsseCards(rsse, approved, wowHistory) {
+  const prev = wowHistory.length >= 2 ? wowHistory[wowHistory.length - 2] : null;
+  const approvedCount = approved.length;
+  const approvalRate = rsse.length > 0 ? (approvedCount / rsse.length * 100) : 0;
+  const delta = prev ? approvedCount - prev.approved : null;
+  const deltaRsse = prev ? rsse.length - prev.totalRsse : null;
+
+  // Total incentive
+  let totalIncentive = 0;
+  approved.forEach(r => {
+    const raw = r['Current Incentive ($)'] || '';
+    const val = parseFloat(raw.replace(/[$,]/g, ''));
+    if (!isNaN(val)) totalIncentive += val;
+  });
+
+  // Total kWh
+  let totalKwh = 0;
+  approved.forEach(r => {
+    const val = parseFloat(r['Energy Storage Capacity (kWh)']);
+    if (!isNaN(val)) totalKwh += val;
+  });
+
+  const el = document.getElementById('rsseCards');
+  el.innerHTML = `
+    <div class="card accent-card">
+      <div class="card-label">Approved (Payment Completed)</div>
+      <div class="card-value">${approvedCount.toLocaleString()}</div>
+      <div class="card-sub">
+        ${delta !== null ? `<span class="${delta >= 0 ? 'delta-up' : 'delta-down'}">${delta >= 0 ? '+' : ''}${delta}</span> vs prior snapshot` : 'First snapshot'}
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-label">Total RSSE Applications</div>
+      <div class="card-value">${rsse.length.toLocaleString()}</div>
+      <div class="card-sub">
+        ${deltaRsse !== null ? `<span class="${deltaRsse >= 0 ? 'delta-up' : 'delta-down'}">${deltaRsse >= 0 ? '+' : ''}${deltaRsse}</span> vs prior snapshot` : 'Across 4 sub-categories'}
+      </div>
+      <div class="card-bar"><div class="card-bar-fill" style="width:${Math.min(100, rsse.length / 150)}%"></div></div>
+    </div>
+    <div class="card">
+      <div class="card-label">Approval Rate</div>
+      <div class="card-value">${approvalRate.toFixed(1)}%</div>
+      <div class="card-sub">of all RSSE applications</div>
+      <div class="card-bar"><div class="card-bar-fill" style="width:${approvalRate}%"></div></div>
+    </div>
+    <div class="card">
+      <div class="card-label">Approved Incentive Value</div>
+      <div class="card-value">$${(totalIncentive / 1e6).toFixed(1)}M</div>
+      <div class="card-sub">${totalKwh.toLocaleString(undefined, {maximumFractionDigits:0})} kWh deployed</div>
+    </div>
+  `;
+}
+
+// ── STATUS TABLE ──────────────────────────────────────────────────────────────
+function renderStatusTable(rsse) {
+  const counts = {};
+  rsse.forEach(r => {
+    const s = r['Fully Qualified State'] || 'Unknown';
+    counts[s] = (counts[s] || 0) + 1;
+  });
+  const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  const total = rsse.length;
+
+  function pillClass(state) {
+    if (APPROVED_STATES.has(state)) return 'pill-green';
+    if (state.startsWith('RRF Confirmed') || state.startsWith('ICF')) return 'pill-blue';
+    if (state === 'Cancelled') return 'pill-red';
+    if (state.includes('Waitlist') || state.includes('Suspended')) return 'pill-amber';
+    return 'pill-gray';
+  }
+
+  const table = document.getElementById('statusTable');
+  table.innerHTML = `
+    <thead><tr>
+      <th>Status</th>
+      <th>Count</th>
+      <th style="text-align:right">% of RSSE</th>
+    </tr></thead>
+    <tbody>
+      ${sorted.map(([state, count]) => `
+        <tr>
+          <td><span class="status-pill ${pillClass(state)}">${state}</span></td>
+          <td style="font-family:var(--mono)">${count.toLocaleString()}</td>
+          <td style="font-family:var(--mono); text-align:right">${(count/total*100).toFixed(1)}%</td>
+        </tr>
+      `).join('')}
+    </tbody>
+  `;
+}
+
+// ── WoW CHART ─────────────────────────────────────────────────────────────────
+function renderWowChart(history) {
+  const labels = history.map(h => h.date);
+  const data = history.map(h => h.approved);
+
+  if (wowChartInstance) wowChartInstance.destroy();
+
+  const ctx = document.getElementById('wowChart').getContext('2d');
+
+  const gradient = ctx.createLinearGradient(0, 0, 0, 240);
+  gradient.addColorStop(0, 'rgba(1, 51, 0, 0.18)');
+  gradient.addColorStop(1, 'rgba(1, 51, 0, 0.01)');
+
+  wowChartInstance = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Approved',
+        data,
+        borderColor: '#013300',
+        backgroundColor: gradient,
+        borderWidth: 2,
+        tension: 0.3,
+        fill: true,
+        pointBackgroundColor: '#013300',
+        pointBorderColor: '#f8f7f4',
+        pointBorderWidth: 2,
+        pointRadius: history.length <= 1 ? 6 : 4,
+        pointHoverRadius: 7,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#013300',
+          titleColor: 'rgba(255,255,255,0.5)',
+          bodyColor: '#fff',
+          padding: 10,
+          displayColors: false,
+          callbacks: {
+            title: ctx => ctx[0].label,
+            label: ctx => `Approved: ${ctx.raw.toLocaleString()}`
+          }
+        }
+      },
+      scales: {
+        x: {
+          grid: { display: false },
+          ticks: {
+            font: { family: 'DM Mono', size: 10 },
+            color: '#9c9a96',
+            maxRotation: 0,
+            maxTicksLimit: 8
+          },
+          border: { display: false }
+        },
+        y: {
+          grid: { color: '#f2f1ee', lineWidth: 1 },
+          ticks: {
+            font: { family: 'DM Mono', size: 10 },
+            color: '#9c9a96',
+            maxTicksLimit: 5
+          },
+          border: { display: false },
+          beginAtZero: false,
+          suggestedMin: 0
+        }
+      }
+    }
+  });
+}
+
+// ── WoW TABLE ─────────────────────────────────────────────────────────────────
+function renderWowTable(history, currentDate) {
+  const container = document.getElementById('wowTableContainer');
+  if (history.length === 0) {
+    container.innerHTML = '<div class="empty-wow">No snapshots yet.</div>';
+    return;
+  }
+
+  const sorted = [...history].reverse();
+  const rows = sorted.map((h, i) => {
+    const prev = sorted[i + 1];
+    const delta = prev ? h.approved - prev.approved : null;
+    const isCurrent = h.date === currentDate;
+    return `
+      <tr class="${isCurrent ? 'current-row' : ''}">
+        <td>${h.date}</td>
+        <td style="color:var(--text-secondary)">${h.fileName.length > 40 ? h.fileName.slice(0,38)+'…' : h.fileName}</td>
+        <td>${h.totalRsse.toLocaleString()}</td>
+        <td>${h.approved.toLocaleString()}</td>
+        <td>${delta !== null
+          ? `<span class="${delta > 0 ? 'delta-up' : delta < 0 ? 'delta-down' : 'delta-neutral'}">${delta > 0 ? '+' : ''}${delta}</span>`
+          : '—'
+        }</td>
+        <td>
+          <button onclick="deleteSnapshot('${h.date}')" style="background:none;border:none;cursor:pointer;color:var(--text-tertiary);font-size:11px;font-family:var(--mono);padding:2px 6px;border-radius:4px;transition:color 0.15s;" onmouseover="this.style.color='#ef4444'" onmouseout="this.style.color='var(--text-tertiary)'">delete</button>
+        </td>
+      </tr>
+    `;
+  });
+
+  container.innerHTML = `
+    <table class="wow-table">
+      <thead><tr>
+        <th>Date</th>
+        <th>File</th>
+        <th>Total RSSE</th>
+        <th>Approved</th>
+        <th>Δ WoW</th>
+        <th></th>
+      </tr></thead>
+      <tbody>${rows.join('')}</tbody>
+    </table>
+  `;
+}
+
+// ── ALL CATEGORIES TABLE ──────────────────────────────────────────────────────
+function renderCatTable(rows) {
+  const cats = {};
+  rows.forEach(r => {
+    const cat = r['Budget Category'] || 'Unknown';
+    if (!cats[cat]) cats[cat] = { total: 0, approved: 0, cancelled: 0, rrfConfirmed: 0, icf: 0, incentive: 0 };
+    cats[cat].total++;
+    const state = r['Fully Qualified State'] || '';
+    if (APPROVED_STATES.has(state)) cats[cat].approved++;
+    if (state === 'Cancelled') cats[cat].cancelled++;
+    if (state === 'RRF Confirmed') cats[cat].rrfConfirmed++;
+    if (state.startsWith('ICF')) cats[cat].icf++;
+    const raw = r['Current Incentive ($)'] || '';
+    const val = parseFloat(raw.replace(/[$,]/g, ''));
+    if (!isNaN(val)) cats[cat].incentive += val;
+  });
+
+  const sorted = Object.entries(cats).sort((a, b) => b[1].total - a[1].total);
+  const maxTotal = Math.max(...sorted.map(([,v]) => v.total));
+
+  const tbody = sorted.map(([cat, v]) => {
+    const isRsse = RSSE_CATS.has(cat);
+    const approvalPct = v.total > 0 ? (v.approved / v.total * 100) : 0;
+    const incentiveStr = v.incentive >= 1e9 ? `$${(v.incentive/1e9).toFixed(2)}B`
+      : v.incentive >= 1e6 ? `$${(v.incentive/1e6).toFixed(1)}M`
+      : `$${(v.incentive/1e3).toFixed(0)}K`;
+    const barPct = v.total / maxTotal * 100;
+    return `
+      <tr class="${isRsse ? 'cat-row-rsse' : ''}">
+        <td>
+          <div class="cat-name">${cat}${isRsse ? '<span class="rsse-badge">RSSE</span>' : ''}</div>
+        </td>
+        <td>${v.total.toLocaleString()}</td>
+        <td>
+          <div class="progress-mini">
+            <span>${v.approved.toLocaleString()}</span>
+            <div class="progress-track">
+              <div class="progress-fill ${isRsse ? 'rsse' : ''}" style="width:${approvalPct}%"></div>
+            </div>
+            <span style="color:var(--text-tertiary); min-width:36px">${approvalPct.toFixed(1)}%</span>
+          </div>
+        </td>
+        <td>${v.cancelled.toLocaleString()}</td>
+        <td>${v.rrfConfirmed.toLocaleString()}</td>
+        <td>${v.icf.toLocaleString()}</td>
+        <td>${incentiveStr}</td>
+      </tr>
+    `;
+  }).join('');
+
+  document.getElementById('catTable').innerHTML = `
+    <thead><tr>
+      <th>Budget Category</th>
+      <th>Total</th>
+      <th>Approved</th>
+      <th>Cancelled</th>
+      <th>RRF Confirmed</th>
+      <th>ICF Stage</th>
+      <th>Total Incentive</th>
+    </tr></thead>
+    <tbody>${tbody}</tbody>
+  `;
+}
+
+// ── SNAPSHOT STORAGE ──────────────────────────────────────────────────────────
+function loadHistory() {
+  try {
+    return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+  } catch { return []; }
+}
+function saveHistory(h) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(h));
+}
+function deleteSnapshot(date) {
+  const h = loadHistory().filter(r => r.date !== date);
+  saveHistory(h);
+  showToast(`Snapshot ${date} deleted.`);
+  // Re-render WoW table and chart with remaining data
+  renderWowChart(h);
+  renderWowTable(h, null);
+}
+
+// ── UTILITIES ─────────────────────────────────────────────────────────────────
+function showLoading(on) {
+  document.getElementById('loadingOverlay').classList.toggle('active', on);
+}
+function showToast(msg, isError = false) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'toast show' + (isError ? ' error' : '');
+  setTimeout(() => { el.className = 'toast'; }, 4000);
+}
+
+// On load: if there's saved history and dashboard was loaded before, show a hint
+window.addEventListener('DOMContentLoaded', () => {
+  const h = loadHistory();
+  if (h.length > 0) {
+    const latest = h[h.length - 1];
+    document.getElementById('headerDate').textContent = `Last: ${latest.date} (${h.length} snapshots)`;
+    // Show a subtle note in the upload zone
+    const hint = document.querySelector('.upload-zone .hint');
+    if (hint) hint.textContent = `${h.length} snapshot${h.length > 1 ? 's' : ''} saved · Upload to update`;
+  }
+});
+</script>
+</body>
+</html>
