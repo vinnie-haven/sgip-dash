@@ -614,11 +614,19 @@
   </div>
 
   <!-- PAYMENT COMPLETE DEVELOPER LEADERBOARD -->
-  <div class="section-label">RSSE Payment Completed — By Developer</div>
+  <div class="section-label">RSSE Approved — By Developer</div>
   <div class="panel">
     <div class="panel-title">Developer Leaderboard</div>
-    <div class="panel-sub">Only developers with at least one Payment Completed project &middot; sorted most to least</div>
+    <div class="panel-sub">Payment Completed + Pending Payment + ICF Pending Payment &middot; sorted most to least</div>
     <table class="status-table" id="developerTable"></table>
+  </div>
+
+  <!-- DEVELOPER WoW -->
+  <div class="section-label">Developer Approvals — Week over Week</div>
+  <div class="panel">
+    <div class="panel-title">New Approvals Since Last Snapshot</div>
+    <div class="panel-sub" id="devWowSub">Developers who gained at least 1 approval between the two most recent uploads</div>
+    <div id="devWowContainer"></div>
   </div>
 
 </div>
@@ -634,7 +642,7 @@ const RSSE_CATS = new Set([
   'Residential Solar and Storage Equity - AB 209 Non-POU',
   'Residential Solar and Storage Equity - AB 209 POU'
 ]);
-const APPROVED_STATES = new Set(['Payment Completed', 'Pending Payment']);
+const APPROVED_STATES = new Set(['Payment Completed', 'Pending Payment', 'ICF Pending Payment']);
 
 // ── DRAG & DROP ──────────────────────────────────────────────────────────────
 const dropZone = document.getElementById('dropZone');
@@ -801,6 +809,7 @@ function renderFromPayload(payload, fileDate, fileName, wowHistory, isNew) {
   renderWowTable(wowHistory, fileDate);
   renderHavenFromPayload(payload);
   renderDeveloperFromPayload(payload);
+  renderDevWow(payload, wowHistory);
 }
 
 // ── FILE META BAR ─────────────────────────────────────────────────────────────
@@ -842,7 +851,7 @@ function renderRsseCardsFromPayload(payload, wowHistory) {
   const el = document.getElementById('rsseCards');
   el.innerHTML = `
     <div class="card accent-card">
-      <div class="card-label">Approved (Payment Completed)</div>
+      <div class="card-label">Approved</div>
       <div class="card-value">${approvedCount.toLocaleString()}</div>
       <div class="card-sub">
         ${delta !== null ? `<span class="${delta >= 0 ? 'delta-up' : 'delta-down'}">${delta >= 0 ? '+' : ''}${delta}</span> vs prior snapshot` : 'First snapshot'}
@@ -1040,7 +1049,7 @@ function renderHavenFromPayload(payload) {
       <div class="card-sub">${marketShare.toFixed(1)}% of all RSSE applications</div>
     </div>
     <div class="card">
-      <div class="card-label">Payment Completed</div>
+      <div class="card-label">Approved</div>
       <div class="card-value">${payload.havenApproved.toLocaleString()}</div>
       <div class="card-sub">${approvalRate.toFixed(1)}% approval rate</div>
       <div class="card-bar"><div class="card-bar-fill" style="width:${approvalRate}%"></div></div>
@@ -1151,12 +1160,104 @@ function renderDeveloperFromPayload(payload) {
       <th style="width:28px">#</th>
       <th>Developer</th>
       <th style="text-align:right">Total RSSE</th>
-      <th style="text-align:right">Payment Completed</th>
+      <th style="text-align:right">Approved</th>
       <th style="text-align:right">Total Paid</th>
       <th style="text-align:right">Approval Rate</th>
       <th style="text-align:right">% of All Approved</th>
     </tr></thead>
     <tbody>${tbody}</tbody>
+  `;
+}
+
+// ── DEVELOPER WoW ────────────────────────────────────────────────────────────
+function renderDevWow(currentPayload, wowHistory) {
+  const container = document.getElementById('devWowContainer');
+  const sub = document.getElementById('devWowSub');
+
+  // Need at least 2 snapshots to compute a delta
+  if (!wowHistory || wowHistory.length < 2) {
+    container.innerHTML = '<div class="empty-wow">Upload a second snapshot to see week-over-week changes.</div>';
+    return;
+  }
+
+  // Find the two most recent snapshots that have devCounts payload
+  const withPayload = wowHistory.filter(h => h.payload && h.payload.devCounts);
+  if (withPayload.length < 2) {
+    container.innerHTML = '<div class="empty-wow">Need 2 snapshots with full data to compute deltas. Upload again after adding another week.</div>';
+    return;
+  }
+
+  const prev = withPayload[withPayload.length - 2];
+  const curr = withPayload[withPayload.length - 1];
+
+  sub.textContent = `${prev.date} → ${curr.date} · developers who gained at least 1 approval`;
+
+  const prevCounts = prev.payload.devCounts || {};
+  const currCounts = curr.payload.devCounts || {};
+
+  // Find all devs with an increase
+  const allDevs = new Set([...Object.keys(prevCounts), ...Object.keys(currCounts)]);
+  const gainers = [];
+  allDevs.forEach(dev => {
+    const before = prevCounts[dev] || 0;
+    const after = currCounts[dev] || 0;
+    const delta = after - before;
+    if (delta > 0) gainers.push({ dev, before, after, delta });
+  });
+
+  gainers.sort((a, b) => b.delta - a.delta || b.after - a.after);
+
+  if (gainers.length === 0) {
+    container.innerHTML = '<div class="empty-wow">No developers gained approvals between these two snapshots.</div>';
+    return;
+  }
+
+  const totalNewApprovals = gainers.reduce((sum, g) => sum + g.delta, 0);
+
+  const rows = gainers.map((g, i) => {
+    const isHaven = g.dev === HAVEN_DEVELOPER;
+    return `
+      <tr style="${isHaven ? 'background:rgba(1,51,0,0.04)' : ''}">
+        <td style="font-family:var(--mono); color:var(--text-tertiary); width:28px; font-size:11px">${i+1}</td>
+        <td>
+          <span style="font-size:13px; font-weight:${isHaven ? '600' : '400'}; color:${isHaven ? 'var(--haven-green)' : 'var(--text-primary)'}">
+            ${g.dev}
+          </span>
+          ${isHaven ? '<span class="rsse-badge" style="margin-left:8px">Haven</span>' : ''}
+        </td>
+        <td style="font-family:var(--mono); text-align:right; color:var(--text-tertiary)">${g.before.toLocaleString()}</td>
+        <td style="font-family:var(--mono); text-align:right">${g.after.toLocaleString()}</td>
+        <td style="font-family:var(--mono); text-align:right">
+          <span class="delta-up">+${g.delta}</span>
+        </td>
+        <td style="font-family:var(--mono); text-align:right; color:var(--text-tertiary)">${totalNewApprovals > 0 ? (g.delta/totalNewApprovals*100).toFixed(0) : 0}% of new</td>
+      </tr>
+    `;
+  }).join('');
+
+  container.innerHTML = `
+    <div style="display:flex; align-items:center; gap:16px; margin-bottom:16px; padding-bottom:14px; border-bottom:1px solid var(--border);">
+      <div>
+        <div style="font-size:11px; font-family:var(--mono); text-transform:uppercase; letter-spacing:0.08em; color:var(--text-tertiary); margin-bottom:4px;">Total New Approvals</div>
+        <div style="font-size:24px; font-weight:600; color:var(--haven-green);">+${totalNewApprovals}</div>
+      </div>
+      <div style="width:1px; height:40px; background:var(--border);"></div>
+      <div>
+        <div style="font-size:11px; font-family:var(--mono); text-transform:uppercase; letter-spacing:0.08em; color:var(--text-tertiary); margin-bottom:4px;">Developers with New Approvals</div>
+        <div style="font-size:24px; font-weight:600;">${gainers.length}</div>
+      </div>
+    </div>
+    <table class="status-table">
+      <thead><tr>
+        <th style="width:28px">#</th>
+        <th>Developer</th>
+        <th style="text-align:right">Prior</th>
+        <th style="text-align:right">Current</th>
+        <th style="text-align:right">New</th>
+        <th style="text-align:right">Share</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
   `;
 }
 
