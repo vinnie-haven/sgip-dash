@@ -1180,14 +1180,7 @@ function renderDeveloperFromPayload(payload) {
           ${haven ? '<span class="rsse-badge" style="margin-left:8px">Haven</span>' : ''}
         </td>
         <td style="font-family:var(--mono); text-align:right">${total.toLocaleString()}</td>
-        <td>
-          <div class="progress-mini" style="justify-content:flex-end">
-            <span style="font-family:var(--mono)">${count.toLocaleString()}</span>
-            <div class="progress-track" style="width:80px">
-              <div class="progress-fill ${haven ? 'rsse' : ''}" style="width:${barPct}%"></div>
-            </div>
-          </div>
-        </td>
+        <td style="font-family:var(--mono); text-align:right">${count.toLocaleString()}</td>
         <td style="font-family:var(--mono); text-align:right">${newApprovedStr}</td>
         <td style="font-family:var(--mono); text-align:right">${incStr}</td>
         <td style="font-family:var(--mono); text-align:right; color:var(--text-tertiary)">${pct.toFixed(1)}%</td>
