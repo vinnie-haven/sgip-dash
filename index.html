@@ -1038,6 +1038,26 @@ function renderWowTable(history, currentDate) {
 // ── HAVEN RSSE SECTION ───────────────────────────────────────────────────────
 const HAVEN_DEVELOPER = 'Haven Energy Services, Inc';
 
+// ── APRIL 24 BASELINE (hardcoded snapshot) ───────────────────────────────────
+const BASELINE_APR24 = {
+  'GRID Alternatives': 127,
+  'Haven Energy Services, Inc': 12,
+  'ES Solar LLC': 14,
+  'Store Energy LLC': 13,
+  'Hooked on Solar': 12,
+  'Apollo Home Power LLC': 4,
+  'Wild Rivers Electric': 3,
+  'Solar Savings Direct': 3,
+  'Ally Electric And Solar Inc': 2,
+  'SolarMax Renewable Energy Provider, Inc.': 2,
+  'LA Solar Group': 2,
+  'California Solar Electric Cooperative Corporation': 1,
+  'A1 Sun, Inc.': 1,
+  'Synergy Power': 1,
+  'Energy Service Partners': 1,
+  'Aikyum Solar': 1,
+};
+
 function renderHavenFromPayload(payload) {
   const marketShare = payload.rsseTotal > 0 ? (payload.havenTotal / payload.rsseTotal * 100) : 0;
   const approvalRate = payload.havenTotal > 0 ? (payload.havenApproved / payload.havenTotal * 100) : 0;
@@ -1122,7 +1142,20 @@ function renderDeveloperFromPayload(payload) {
 
   const isHaven = dev => dev === HAVEN_DEVELOPER;
 
-  const tbody = sorted.map(([dev, count], i) => {
+  // Merge in any developers who have current approvals but weren't in sorted (shouldn't happen, but safety)
+  // Also include devs who are new (0 baseline -> 1+)
+  const allDevsWithApprovals = new Set([
+    ...sorted.map(([dev]) => dev),
+    ...Object.keys(BASELINE_APR24),
+  ]);
+
+  // Re-sort including new entrants: by current approved count desc
+  const fullSorted = Array.from(allDevsWithApprovals)
+    .map(dev => [dev, devCounts[dev] || 0])
+    .filter(([dev, count]) => count > 0)
+    .sort((a, b) => b[1] - a[1]);
+
+  const tbody = fullSorted.map(([dev, count], i) => {
     const total = devTotals[dev] || 0;
     const pct = total > 0 ? (count / total * 100) : 0;
     const sharePct = totalApproved > 0 ? (count / totalApproved * 100) : 0;
@@ -1130,6 +1163,13 @@ function renderDeveloperFromPayload(payload) {
     const haven = isHaven(dev);
     const inc = devIncentive[dev] || 0;
     const incStr = inc >= 1e6 ? `$${(inc/1e6).toFixed(2)}M` : `$${(inc/1e3).toFixed(1)}K`;
+    const baseline = BASELINE_APR24[dev] || 0;
+    const newApproved = count - baseline;
+    const newApprovedStr = newApproved > 0
+      ? `<span class="delta-up">+${newApproved}</span>`
+      : newApproved < 0
+        ? `<span class="delta-down">${newApproved}</span>`
+        : `<span style="color:var(--text-tertiary)">—</span>`;
     return `
       <tr style="${haven ? 'background:rgba(1,51,0,0.04)' : ''}">
         <td style="font-family:var(--mono); color:var(--text-tertiary); width:28px; font-size:11px">${i+1}</td>
@@ -1148,6 +1188,7 @@ function renderDeveloperFromPayload(payload) {
             </div>
           </div>
         </td>
+        <td style="font-family:var(--mono); text-align:right">${newApprovedStr}</td>
         <td style="font-family:var(--mono); text-align:right">${incStr}</td>
         <td style="font-family:var(--mono); text-align:right; color:var(--text-tertiary)">${pct.toFixed(1)}%</td>
         <td style="font-family:var(--mono); text-align:right; color:var(--text-tertiary)">${sharePct.toFixed(1)}%</td>
@@ -1161,6 +1202,7 @@ function renderDeveloperFromPayload(payload) {
       <th>Developer</th>
       <th style="text-align:right">Total RSSE</th>
       <th style="text-align:right">Approved</th>
+      <th style="text-align:right">New (since 4/24)</th>
       <th style="text-align:right">Total Paid</th>
       <th style="text-align:right">Approval Rate</th>
       <th style="text-align:right">% of All Approved</th>
