@@ -629,21 +629,40 @@
     <div id="devWowContainer"></div>
   </div>
 
-  <!-- TRAILING 12-MONTH APPROVALS BY WEEK / MONTH -->
+  <!-- TRAILING 12-MONTH APPROVALS — RSSE -->
   <div class="section-label">RSSE Approvals — Trailing 12 Months</div>
   <div class="two-col" style="margin-top:4px;">
     <div class="panel">
       <div class="panel-title">Total Approvals by Week</div>
-      <div class="panel-sub">All developers · by Payment Completed Date</div>
+      <div class="panel-sub">RSSE · all developers · by Payment Completed Date</div>
       <div class="chart-container">
         <canvas id="approvalsWeeklyChart"></canvas>
       </div>
     </div>
     <div class="panel">
       <div class="panel-title">Total Approvals by Month</div>
-      <div class="panel-sub">All developers · by Payment Completed Date</div>
+      <div class="panel-sub">RSSE · all developers · by Payment Completed Date</div>
       <div class="chart-container">
         <canvas id="approvalsMonthlyChart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- TRAILING 12-MONTH APPROVALS — ALL SGIP -->
+  <div class="section-label">All SGIP Approvals — Trailing 12 Months</div>
+  <div class="two-col" style="margin-top:4px;">
+    <div class="panel">
+      <div class="panel-title">Total Approvals by Week</div>
+      <div class="panel-sub">All budget categories · all developers · by Payment Completed Date</div>
+      <div class="chart-container">
+        <canvas id="approvalsAllWeeklyChart"></canvas>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-title">Total Approvals by Month</div>
+      <div class="panel-sub">All budget categories · all developers · by Payment Completed Date</div>
+      <div class="chart-container">
+        <canvas id="approvalsAllMonthlyChart"></canvas>
       </div>
     </div>
   </div>
@@ -774,8 +793,9 @@ function buildPayload(rows) {
     devIncentive[d]=(devIncentive[d]||0)+parseDollar(r['Current Incentive ($)']);
   });
 
-  // Trailing 12-month approvals by week + month (RSSE, all developers, by Payment Completed Date)
-  const approvalTrend = buildApprovalTrend(rsse);
+  // Trailing 12-month approvals by week + month
+  const approvalTrend = buildApprovalTrend(rsse);          // RSSE only
+  const approvalTrendAll = buildApprovalTrend(rows);       // All SGIP budget categories
 
   return {
     totalRows: rows.length,
@@ -789,6 +809,7 @@ function buildPayload(rows) {
     havenStatusCounts, havenCatCounts, havenAdminCounts,
     devCounts, devTotals, devIncentive,
     approvalTrend,
+    approvalTrendAll,
   };
 }
 
@@ -922,7 +943,7 @@ function renderFromPayload(payload, fileDate, fileName, wowHistory, isNew) {
   renderHavenFromPayload(payload);
   renderDeveloperFromPayload(payload);
   renderDevWow(payload, wowHistory);
-  renderApprovalTrendCharts(payload.approvalTrend);
+  renderApprovalTrendCharts(payload);
 }
 
 // ── FILE META BAR ─────────────────────────────────────────────────────────────
@@ -1104,38 +1125,41 @@ function renderWowChart(history) {
 }
 
 // ── TRAILING 12-MONTH APPROVAL CHARTS (WEEKLY + MONTHLY) ─────────────────────
-let approvalsWeeklyChartInstance = null;
-let approvalsMonthlyChartInstance = null;
+const approvalChartInstances = {}; // canvasId -> Chart instance
 
-function renderApprovalTrendCharts(trend) {
-  if (approvalsWeeklyChartInstance) approvalsWeeklyChartInstance.destroy();
-  if (approvalsMonthlyChartInstance) approvalsMonthlyChartInstance.destroy();
+function renderApprovalChartPair(trend, weeklyCanvasId, monthlyCanvasId) {
+  // Destroy any previous instances on these canvases
+  [weeklyCanvasId, monthlyCanvasId].forEach(id => {
+    if (approvalChartInstances[id]) {
+      approvalChartInstances[id].destroy();
+      delete approvalChartInstances[id];
+    }
+  });
 
-  const weeklyCanvas = document.getElementById('approvalsWeeklyChart');
-  const monthlyCanvas = document.getElementById('approvalsMonthlyChart');
+  const weeklyCanvas = document.getElementById(weeklyCanvasId);
+  const monthlyCanvas = document.getElementById(monthlyCanvasId);
   if (!weeklyCanvas || !monthlyCanvas) return;
 
-  // Cached payloads from before this section was added won't have approvalTrend.
-  // Show a hint instead of leaving the canvases blank.
+  // Clear any existing hints in these specific containers
+  [weeklyCanvas, monthlyCanvas].forEach(canvas => {
+    const hint = canvas.parentElement.querySelector('.chart-empty-hint');
+    if (hint) hint.remove();
+  });
+
+  // Cached payloads from before this section was added won't have the trend data.
   if (!trend || !trend.weekly || !trend.weekly.length) {
     [weeklyCanvas, monthlyCanvas].forEach(canvas => {
       const container = canvas.parentElement;
-      let hint = container.querySelector('.chart-empty-hint');
-      if (!hint) {
-        hint = document.createElement('div');
-        hint.className = 'chart-empty-hint';
-        hint.style.cssText = 'position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:12px; color:var(--text-tertiary); font-family:var(--mono); text-align:center; padding:0 24px; line-height:1.6;';
-        hint.textContent = trend === undefined
-          ? 'Re-upload the latest CSV to populate this chart'
-          : 'No Payment Completed Date entries in the trailing 12 months';
-        container.appendChild(hint);
-      }
+      const hint = document.createElement('div');
+      hint.className = 'chart-empty-hint';
+      hint.style.cssText = 'position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:12px; color:var(--text-tertiary); font-family:var(--mono); text-align:center; padding:0 24px; line-height:1.6;';
+      hint.textContent = trend === undefined
+        ? 'Re-upload the latest CSV to populate this chart'
+        : 'No Payment Completed Date entries in the trailing 12 months';
+      container.appendChild(hint);
     });
     return;
   }
-
-  // Clear any existing hints
-  document.querySelectorAll('.chart-empty-hint').forEach(el => el.remove());
 
   const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
@@ -1146,8 +1170,8 @@ function renderApprovalTrendCharts(trend) {
   });
   const weeklyData = trend.weekly.map(w => w.count);
 
-  approvalsWeeklyChartInstance = new Chart(
-    document.getElementById('approvalsWeeklyChart').getContext('2d'),
+  approvalChartInstances[weeklyCanvasId] = new Chart(
+    weeklyCanvas.getContext('2d'),
     {
       type: 'bar',
       data: {
@@ -1182,23 +1206,12 @@ function renderApprovalTrendCharts(trend) {
         scales: {
           x: {
             grid: { display: false },
-            ticks: {
-              font: { family: 'DM Mono', size: 10 },
-              color: '#9c9a96',
-              maxRotation: 0,
-              autoSkip: true,
-              maxTicksLimit: 13
-            },
+            ticks: { font: { family: 'DM Mono', size: 10 }, color: '#9c9a96', maxRotation: 0, autoSkip: true, maxTicksLimit: 13 },
             border: { display: false }
           },
           y: {
             grid: { color: '#f2f1ee', lineWidth: 1 },
-            ticks: {
-              font: { family: 'DM Mono', size: 10 },
-              color: '#9c9a96',
-              maxTicksLimit: 5,
-              precision: 0
-            },
+            ticks: { font: { family: 'DM Mono', size: 10 }, color: '#9c9a96', maxTicksLimit: 5, precision: 0 },
             border: { display: false },
             beginAtZero: true
           }
@@ -1214,8 +1227,8 @@ function renderApprovalTrendCharts(trend) {
   });
   const monthlyData = trend.monthly.map(m => m.count);
 
-  approvalsMonthlyChartInstance = new Chart(
-    document.getElementById('approvalsMonthlyChart').getContext('2d'),
+  approvalChartInstances[monthlyCanvasId] = new Chart(
+    monthlyCanvas.getContext('2d'),
     {
       type: 'bar',
       data: {
@@ -1241,30 +1254,18 @@ function renderApprovalTrendCharts(trend) {
             bodyColor: '#fff',
             padding: 10,
             displayColors: false,
-            callbacks: {
-              label: ctx => `${ctx.raw.toLocaleString()} approvals`
-            }
+            callbacks: { label: ctx => `${ctx.raw.toLocaleString()} approvals` }
           }
         },
         scales: {
           x: {
             grid: { display: false },
-            ticks: {
-              font: { family: 'DM Mono', size: 10 },
-              color: '#9c9a96',
-              maxRotation: 0,
-              autoSkip: false
-            },
+            ticks: { font: { family: 'DM Mono', size: 10 }, color: '#9c9a96', maxRotation: 0, autoSkip: false },
             border: { display: false }
           },
           y: {
             grid: { color: '#f2f1ee', lineWidth: 1 },
-            ticks: {
-              font: { family: 'DM Mono', size: 10 },
-              color: '#9c9a96',
-              maxTicksLimit: 5,
-              precision: 0
-            },
+            ticks: { font: { family: 'DM Mono', size: 10 }, color: '#9c9a96', maxTicksLimit: 5, precision: 0 },
             border: { display: false },
             beginAtZero: true
           }
@@ -1273,6 +1274,12 @@ function renderApprovalTrendCharts(trend) {
     }
   );
 }
+
+function renderApprovalTrendCharts(payload) {
+  renderApprovalChartPair(payload.approvalTrend, 'approvalsWeeklyChart', 'approvalsMonthlyChart');
+  renderApprovalChartPair(payload.approvalTrendAll, 'approvalsAllWeeklyChart', 'approvalsAllMonthlyChart');
+}
+
 function renderWowTable(history, currentDate) {
   const container = document.getElementById('wowTableContainer');
   if (history.length === 0) {
