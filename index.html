@@ -629,44 +629,6 @@
     <div id="devWowContainer"></div>
   </div>
 
-  <!-- TRAILING 12-MONTH APPROVALS — RSSE -->
-  <div class="section-label">RSSE Approvals — Trailing 12 Months</div>
-  <div class="two-col" style="margin-top:4px;">
-    <div class="panel">
-      <div class="panel-title">Total Approvals by Week</div>
-      <div class="panel-sub">RSSE · all developers · by Payment Completed Date</div>
-      <div class="chart-container">
-        <canvas id="approvalsWeeklyChart"></canvas>
-      </div>
-    </div>
-    <div class="panel">
-      <div class="panel-title">Total Approvals by Month</div>
-      <div class="panel-sub">RSSE · all developers · by Payment Completed Date</div>
-      <div class="chart-container">
-        <canvas id="approvalsMonthlyChart"></canvas>
-      </div>
-    </div>
-  </div>
-
-  <!-- TRAILING 12-MONTH APPROVALS — ALL SGIP -->
-  <div class="section-label">All SGIP Approvals — Trailing 12 Months</div>
-  <div class="two-col" style="margin-top:4px;">
-    <div class="panel">
-      <div class="panel-title">Total Approvals by Week</div>
-      <div class="panel-sub">All budget categories · all developers · by Payment Completed Date</div>
-      <div class="chart-container">
-        <canvas id="approvalsAllWeeklyChart"></canvas>
-      </div>
-    </div>
-    <div class="panel">
-      <div class="panel-title">Total Approvals by Month</div>
-      <div class="panel-sub">All budget categories · all developers · by Payment Completed Date</div>
-      <div class="chart-container">
-        <canvas id="approvalsAllMonthlyChart"></canvas>
-      </div>
-    </div>
-  </div>
-
 </div>
 
 <script>
@@ -787,15 +749,15 @@ function buildPayload(rows) {
   // Developer table
   const devCounts={}, devTotals={}, devIncentive={};
   rsse.forEach(r => { const d=r['Developer Company Name']||'Unknown'; devTotals[d]=(devTotals[d]||0)+1; });
+  const devUtility={};
   approved.forEach(r => {
     const d=r['Developer Company Name']||'Unknown';
     devCounts[d]=(devCounts[d]||0)+1;
     devIncentive[d]=(devIncentive[d]||0)+parseDollar(r['Current Incentive ($)']);
+    const uKey = UTILITY_MAP[r['SGIP Administrator']||''] || 'other';
+    if (!devUtility[d]) devUtility[d]={pge:0,sce:0,cse:0,ladwp:0,socalgas:0,other:0};
+    devUtility[d][uKey]=(devUtility[d][uKey]||0)+1;
   });
-
-  // Trailing 12-month approvals by week + month
-  const approvalTrend = buildApprovalTrend(rsse);          // RSSE only
-  const approvalTrendAll = buildApprovalTrend(rows);       // All SGIP budget categories
 
   return {
     totalRows: rows.length,
@@ -807,99 +769,8 @@ function buildPayload(rows) {
     havenApproved: havenApproved.length,
     havenTotalInc, havenApprovedInc, havenTotalKwh, havenApprovedKwh,
     havenStatusCounts, havenCatCounts, havenAdminCounts,
-    devCounts, devTotals, devIncentive,
-    approvalTrend,
-    approvalTrendAll,
+    devCounts, devTotals, devIncentive, devUtility,
   };
-}
-
-// Parse SGIP "Payment Completed Date" — format is typically MM/DD/YY
-function parsePaymentDate(s) {
-  if (!s) return null;
-  const t = String(s).trim();
-  if (!t) return null;
-  // Match M/D/YY or MM/DD/YYYY (optional time after)
-  const m = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
-  if (!m) return null;
-  let [, mo, d, y] = m;
-  mo = parseInt(mo, 10); d = parseInt(d, 10); y = parseInt(y, 10);
-  if (y < 100) y += 2000;
-  const dt = new Date(y, mo - 1, d);
-  return isNaN(dt) ? null : dt;
-}
-
-function mondayOf(date) {
-  const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  const day = d.getDay(); // Sun=0..Sat=6
-  const diff = (day === 0 ? -6 : 1 - day);
-  d.setDate(d.getDate() + diff);
-  return d;
-}
-
-function ymd(d) {
-  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
-}
-function ym(d) {
-  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
-}
-
-function buildApprovalTrend(rsseRows) {
-  // Find most recent payment date in file (anchors the trailing window)
-  let maxDate = null;
-  const dated = [];
-  rsseRows.forEach(r => {
-    const d = parsePaymentDate(r['Payment Completed Date']);
-    if (d) {
-      dated.push(d);
-      if (!maxDate || d > maxDate) maxDate = d;
-    }
-  });
-  if (!maxDate) return { weekly: [], monthly: [], total: 0, anchor: null };
-
-  // Window: 12 months back from maxDate
-  const start = new Date(maxDate.getFullYear(), maxDate.getMonth() - 12, maxDate.getDate());
-
-  const weekly = {}; // Monday key → count
-  const monthly = {}; // YYYY-MM → count
-  let total = 0;
-  dated.forEach(d => {
-    if (d < start || d > maxDate) return;
-    total++;
-    const wk = ymd(mondayOf(d));
-    weekly[wk] = (weekly[wk]||0) + 1;
-    const mk = ym(d);
-    monthly[mk] = (monthly[mk]||0) + 1;
-  });
-
-  // Build sorted, gap-filled weekly series
-  const weekKeys = Object.keys(weekly).sort();
-  const weeklyArr = [];
-  if (weekKeys.length) {
-    let cursor = new Date(weekKeys[0] + 'T00:00:00');
-    const last = new Date(weekKeys[weekKeys.length-1] + 'T00:00:00');
-    while (cursor <= last) {
-      const k = ymd(cursor);
-      weeklyArr.push({ week: k, count: weekly[k] || 0 });
-      cursor.setDate(cursor.getDate() + 7);
-    }
-  }
-
-  // Build sorted, gap-filled monthly series
-  const monthKeys = Object.keys(monthly).sort();
-  const monthlyArr = [];
-  if (monthKeys.length) {
-    const [sy, sm] = monthKeys[0].split('-').map(Number);
-    const [ey, em] = monthKeys[monthKeys.length-1].split('-').map(Number);
-    let cy = sy, cm = sm;
-    while (cy < ey || (cy === ey && cm <= em)) {
-      const key = cy + '-' + String(cm).padStart(2,'0');
-      monthlyArr.push({ month: key, count: monthly[key] || 0 });
-      cm++;
-      if (cm > 12) { cm = 1; cy++; }
-    }
-  }
-
-  return { weekly: weeklyArr, monthly: monthlyArr, total, anchor: ymd(maxDate) };
 }
 
 function renderDashboard(rows, fileDate, fileName) {
@@ -943,7 +814,6 @@ function renderFromPayload(payload, fileDate, fileName, wowHistory, isNew) {
   renderHavenFromPayload(payload);
   renderDeveloperFromPayload(payload);
   renderDevWow(payload, wowHistory);
-  renderApprovalTrendCharts(payload);
 }
 
 // ── FILE META BAR ─────────────────────────────────────────────────────────────
@@ -1124,162 +994,7 @@ function renderWowChart(history) {
   });
 }
 
-// ── TRAILING 12-MONTH APPROVAL CHARTS (WEEKLY + MONTHLY) ─────────────────────
-const approvalChartInstances = {}; // canvasId -> Chart instance
-
-function renderApprovalChartPair(trend, weeklyCanvasId, monthlyCanvasId) {
-  // Destroy any previous instances on these canvases
-  [weeklyCanvasId, monthlyCanvasId].forEach(id => {
-    if (approvalChartInstances[id]) {
-      approvalChartInstances[id].destroy();
-      delete approvalChartInstances[id];
-    }
-  });
-
-  const weeklyCanvas = document.getElementById(weeklyCanvasId);
-  const monthlyCanvas = document.getElementById(monthlyCanvasId);
-  if (!weeklyCanvas || !monthlyCanvas) return;
-
-  // Clear any existing hints in these specific containers
-  [weeklyCanvas, monthlyCanvas].forEach(canvas => {
-    const hint = canvas.parentElement.querySelector('.chart-empty-hint');
-    if (hint) hint.remove();
-  });
-
-  // Cached payloads from before this section was added won't have the trend data.
-  if (!trend || !trend.weekly || !trend.weekly.length) {
-    [weeklyCanvas, monthlyCanvas].forEach(canvas => {
-      const container = canvas.parentElement;
-      const hint = document.createElement('div');
-      hint.className = 'chart-empty-hint';
-      hint.style.cssText = 'position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:12px; color:var(--text-tertiary); font-family:var(--mono); text-align:center; padding:0 24px; line-height:1.6;';
-      hint.textContent = trend === undefined
-        ? 'Re-upload the latest CSV to populate this chart'
-        : 'No Payment Completed Date entries in the trailing 12 months';
-      container.appendChild(hint);
-    });
-    return;
-  }
-
-  const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-
-  // Weekly
-  const weeklyLabels = trend.weekly.map(w => {
-    const d = new Date(w.week + 'T00:00:00');
-    return MONTH_NAMES[d.getMonth()] + ' ' + d.getDate();
-  });
-  const weeklyData = trend.weekly.map(w => w.count);
-
-  approvalChartInstances[weeklyCanvasId] = new Chart(
-    weeklyCanvas.getContext('2d'),
-    {
-      type: 'bar',
-      data: {
-        labels: weeklyLabels,
-        datasets: [{
-          label: 'Approvals',
-          data: weeklyData,
-          backgroundColor: '#013300',
-          borderRadius: 2,
-          borderSkipped: false,
-          barPercentage: 0.85,
-          categoryPercentage: 0.95,
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            backgroundColor: '#013300',
-            titleColor: 'rgba(255,255,255,0.5)',
-            bodyColor: '#fff',
-            padding: 10,
-            displayColors: false,
-            callbacks: {
-              title: ctx => 'Week of ' + ctx[0].label,
-              label: ctx => `${ctx.raw.toLocaleString()} approvals`
-            }
-          }
-        },
-        scales: {
-          x: {
-            grid: { display: false },
-            ticks: { font: { family: 'DM Mono', size: 10 }, color: '#9c9a96', maxRotation: 0, autoSkip: true, maxTicksLimit: 13 },
-            border: { display: false }
-          },
-          y: {
-            grid: { color: '#f2f1ee', lineWidth: 1 },
-            ticks: { font: { family: 'DM Mono', size: 10 }, color: '#9c9a96', maxTicksLimit: 5, precision: 0 },
-            border: { display: false },
-            beginAtZero: true
-          }
-        }
-      }
-    }
-  );
-
-  // Monthly
-  const monthlyLabels = trend.monthly.map(m => {
-    const [y, mo] = m.month.split('-').map(Number);
-    return MONTH_NAMES[mo - 1] + " '" + String(y).slice(-2);
-  });
-  const monthlyData = trend.monthly.map(m => m.count);
-
-  approvalChartInstances[monthlyCanvasId] = new Chart(
-    monthlyCanvas.getContext('2d'),
-    {
-      type: 'bar',
-      data: {
-        labels: monthlyLabels,
-        datasets: [{
-          label: 'Approvals',
-          data: monthlyData,
-          backgroundColor: '#013300',
-          borderRadius: 2,
-          borderSkipped: false,
-          barPercentage: 0.7,
-          categoryPercentage: 0.85,
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            backgroundColor: '#013300',
-            titleColor: 'rgba(255,255,255,0.5)',
-            bodyColor: '#fff',
-            padding: 10,
-            displayColors: false,
-            callbacks: { label: ctx => `${ctx.raw.toLocaleString()} approvals` }
-          }
-        },
-        scales: {
-          x: {
-            grid: { display: false },
-            ticks: { font: { family: 'DM Mono', size: 10 }, color: '#9c9a96', maxRotation: 0, autoSkip: false },
-            border: { display: false }
-          },
-          y: {
-            grid: { color: '#f2f1ee', lineWidth: 1 },
-            ticks: { font: { family: 'DM Mono', size: 10 }, color: '#9c9a96', maxTicksLimit: 5, precision: 0 },
-            border: { display: false },
-            beginAtZero: true
-          }
-        }
-      }
-    }
-  );
-}
-
-function renderApprovalTrendCharts(payload) {
-  renderApprovalChartPair(payload.approvalTrend, 'approvalsWeeklyChart', 'approvalsMonthlyChart');
-  renderApprovalChartPair(payload.approvalTrendAll, 'approvalsAllWeeklyChart', 'approvalsAllMonthlyChart');
-}
-
+// ── WoW TABLE ─────────────────────────────────────────────────────────────────
 function renderWowTable(history, currentDate) {
   const container = document.getElementById('wowTableContainer');
   if (history.length === 0) {
@@ -1345,6 +1060,33 @@ const BASELINE_APR24 = {
   'Synergy Power': 1,
   'Energy Service Partners': 1,
   'Aikyum Solar': 1,
+};
+
+const BASELINE_APR24_UTILITY = {
+  'A1 Sun, Inc.':                                     { pge: 1,  sce: 0,  cse: 0, ladwp: 0, socalgas: 0 },
+  'Aikyum Solar':                                     { pge: 0,  sce: 0,  cse: 0, ladwp: 0, socalgas: 1 },
+  'Ally Electric And Solar Inc':                      { pge: 2,  sce: 0,  cse: 0, ladwp: 0, socalgas: 0 },
+  'Apollo Home Power LLC':                            { pge: 0,  sce: 4,  cse: 0, ladwp: 0, socalgas: 0 },
+  'California Solar Electric Cooperative Corporation':{ pge: 1,  sce: 0,  cse: 0, ladwp: 0, socalgas: 0 },
+  'ES Solar LLC':                                     { pge: 14, sce: 0,  cse: 0, ladwp: 0, socalgas: 0 },
+  'Energy Service Partners':                          { pge: 0,  sce: 1,  cse: 0, ladwp: 0, socalgas: 0 },
+  'GRID Alternatives':                                { pge: 56, sce: 71, cse: 0, ladwp: 0, socalgas: 0 },
+  'Haven Energy Services, Inc':                       { pge: 9,  sce: 3,  cse: 0, ladwp: 0, socalgas: 0 },
+  'Hooked on Solar':                                  { pge: 12, sce: 0,  cse: 0, ladwp: 0, socalgas: 0 },
+  'LA Solar Group':                                   { pge: 0,  sce: 2,  cse: 0, ladwp: 0, socalgas: 0 },
+  'Solar Savings Direct':                             { pge: 3,  sce: 0,  cse: 0, ladwp: 0, socalgas: 0 },
+  'SolarMax Renewable Energy Provider, Inc.':         { pge: 0,  sce: 2,  cse: 0, ladwp: 0, socalgas: 0 },
+  'Store Energy LLC':                                 { pge: 1,  sce: 12, cse: 0, ladwp: 0, socalgas: 0 },
+  'Synergy Power':                                    { pge: 1,  sce: 0,  cse: 0, ladwp: 0, socalgas: 0 },
+  'Wild Rivers Electric':                             { pge: 3,  sce: 0,  cse: 0, ladwp: 0, socalgas: 0 },
+};
+
+const UTILITY_MAP = {
+  'Pacific Gas and Electric':      'pge',
+  'Southern California Edison':    'sce',
+  'Center for Sustainable Energy': 'cse',
+  'LA Dept. of Water and Power':   'ladwp',
+  'SoCalGas':                      'socalgas',
 };
 
 function renderHavenFromPayload(payload) {
@@ -1444,11 +1186,19 @@ function renderDeveloperFromPayload(payload) {
     .filter(([dev, count]) => count > 0)
     .sort((a, b) => b[1] - a[1]);
 
+  const devUtility = payload.devUtility || {};
+
+  function utDelta(dev, key) {
+    const cur = (devUtility[dev] || {})[key] || 0;
+    const base = (BASELINE_APR24_UTILITY[dev] || {})[key] || 0;
+    const d = cur - base;
+    if (d > 0) return `<span class="delta-up">+${d}</span>`;
+    if (d < 0) return `<span class="delta-down">${d}</span>`;
+    return `<span style="color:var(--text-tertiary)">—</span>`;
+  }
+
   const tbody = fullSorted.map(([dev, count], i) => {
     const total = devTotals[dev] || 0;
-    const pct = total > 0 ? (count / total * 100) : 0;
-    const sharePct = totalApproved > 0 ? (count / totalApproved * 100) : 0;
-    const barPct = (count / maxApproved * 100);
     const haven = isHaven(dev);
     const inc = devIncentive[dev] || 0;
     const incStr = inc >= 1e6 ? `$${(inc/1e6).toFixed(2)}M` : `$${(inc/1e3).toFixed(1)}K`;
@@ -1471,9 +1221,12 @@ function renderDeveloperFromPayload(payload) {
         <td style="font-family:var(--mono); text-align:right">${total.toLocaleString()}</td>
         <td style="font-family:var(--mono); text-align:right">${count.toLocaleString()}</td>
         <td style="font-family:var(--mono); text-align:right">${newApprovedStr}</td>
+        <td style="font-family:var(--mono); text-align:right">${utDelta(dev,'pge')}</td>
+        <td style="font-family:var(--mono); text-align:right">${utDelta(dev,'sce')}</td>
+        <td style="font-family:var(--mono); text-align:right">${utDelta(dev,'cse')}</td>
+        <td style="font-family:var(--mono); text-align:right">${utDelta(dev,'ladwp')}</td>
+        <td style="font-family:var(--mono); text-align:right">${utDelta(dev,'socalgas')}</td>
         <td style="font-family:var(--mono); text-align:right">${incStr}</td>
-        <td style="font-family:var(--mono); text-align:right; color:var(--text-tertiary)">${pct.toFixed(1)}%</td>
-        <td style="font-family:var(--mono); text-align:right; color:var(--text-tertiary)">${sharePct.toFixed(1)}%</td>
       </tr>
     `;
   }).join('');
@@ -1484,10 +1237,13 @@ function renderDeveloperFromPayload(payload) {
       <th>Developer</th>
       <th style="text-align:right">Total RSSE</th>
       <th style="text-align:right">Approved</th>
-      <th style="text-align:right">New (since 4/24)</th>
+      <th style="text-align:right">New (4/24)</th>
+      <th style="text-align:right">PG&amp;E New</th>
+      <th style="text-align:right">SCE New</th>
+      <th style="text-align:right">CSE New</th>
+      <th style="text-align:right">LADWP New</th>
+      <th style="text-align:right">SoCalGas New</th>
       <th style="text-align:right">Total Paid</th>
-      <th style="text-align:right">Approval Rate</th>
-      <th style="text-align:right">% of All Approved</th>
     </tr></thead>
     <tbody>${tbody}</tbody>
   `;
